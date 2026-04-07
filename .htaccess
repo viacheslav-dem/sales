@@ -1,0 +1,25 @@
+# Закрыть доступ к служебным файлам и папкам
+<FilesMatch "\.(db|json|lock|md)$">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    # Запретить доступ к папке data/
+    RewriteRule ^data/ - [F,L]
+    # Запретить прямой доступ к vendor/
+    RewriteRule ^vendor/ - [F,L]
+</IfModule>
+
+# Отключить показ содержимого директорий
+Options -Indexes
+
+# Security headers
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set Referrer-Policy "same-origin"
+    Header set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+    # CSP: разрешены inline scripts/styles (требуется текущим кодом) и Google Fonts
+    Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
+</IfModule>

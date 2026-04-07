@@ -1,0 +1,281 @@
+<?php
+require_once __DIR__ . '/auth.php';
+
+if (is_logged_in()) {
+    header('Location: dashboard.php');
+    exit;
+}
+
+$error = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $username = trim($_POST['username'] ?? '');
+    $password = $_POST['password'] ?? '';
+    if (login($username, $password)) {
+        header('Location: dashboard.php');
+        exit;
+    }
+    $error = 'Неверный логин или пароль.';
+}
+?>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Вход — <?= htmlspecialchars(APP_NAME) ?></title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82f6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z'/><line x1='3' y1='6' x2='21' y2='6'/><path d='M16 10a4 4 0 0 1-8 0'/></svg>">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+    --primary:    #2563eb;
+    --primary-h:  #1d4ed8;
+    --primary-50: #eff6ff;
+    --border:     #e2e8f0;
+    --border-h:   #cbd5e1;
+    --bg:         #f8fafc;
+    --bg-2:       #f1f5f9;
+    --text:       #0f172a;
+    --text-2:     #475569;
+    --muted:      #64748b;
+    --muted-2:    #94a3b8;
+    --danger:     #dc2626;
+    --danger-bg:  #fef2f2;
+    --danger-bd:  #fecaca;
+    --radius:     8px;
+    --radius-lg:  16px;
+    --font:       'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: var(--font);
+    background:
+        radial-gradient(1200px circle at 10% -10%, rgba(59,130,246,.12), transparent 50%),
+        radial-gradient(900px circle at 110% 110%, rgba(99,102,241,.10), transparent 55%),
+        var(--bg);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv11', 'ss01';
+}
+
+.login-wrap {
+    width: 100%;
+    max-width: 400px;
+}
+
+.login-brand {
+    text-align: center;
+    margin-bottom: 32px;
+}
+.login-brand .logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-h) 100%);
+    color: #fff;
+    box-shadow: 0 10px 30px rgba(37, 99, 235, .35), 0 0 0 1px rgba(37,99,235,.1);
+    margin-bottom: 16px;
+}
+.login-brand h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -.025em;
+    line-height: 1.2;
+}
+.login-brand p {
+    font-size: .875rem;
+    color: var(--muted);
+    margin-top: 6px;
+}
+
+.card {
+    background: #fff;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    box-shadow:
+        0 1px 2px rgba(15, 23, 42, .04),
+        0 12px 32px rgba(15, 23, 42, .08),
+        0 30px 60px rgba(15, 23, 42, .04);
+    padding: 36px;
+}
+
+.form-group { margin-bottom: 18px; }
+.form-group label {
+    display: block;
+    font-size: .8125rem;
+    font-weight: 600;
+    color: var(--text-2);
+    margin-bottom: 7px;
+    letter-spacing: .01em;
+}
+
+.input-wrap {
+    position: relative;
+}
+.input-wrap svg {
+    position: absolute;
+    left: 13px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    color: var(--muted-2);
+    pointer-events: none;
+    transition: color .15s ease;
+}
+.input-wrap input:focus + svg,
+.input-wrap input:hover + svg { color: var(--primary); }
+
+input[type=text], input[type=password] {
+    width: 100%;
+    padding: 11px 14px 11px 42px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: .9375rem;
+    font-family: var(--font);
+    color: var(--text);
+    background: #fff;
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+input[type=text]::placeholder, input[type=password]::placeholder { color: var(--muted-2); }
+input:hover { border-color: var(--border-h); }
+input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37,99,235,.18);
+}
+
+.btn-login {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    margin-top: 28px;
+    padding: 12px;
+    background: linear-gradient(180deg, var(--primary) 0%, var(--primary-h) 100%);
+    color: #fff;
+    border: 1px solid var(--primary-h);
+    border-radius: var(--radius);
+    font-size: .9375rem;
+    font-family: var(--font);
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform .12s ease, box-shadow .15s ease, filter .15s ease;
+    letter-spacing: .005em;
+    box-shadow: 0 1px 2px rgba(37,99,235,.2), 0 4px 12px rgba(37,99,235,.18);
+}
+.btn-login:hover {
+    filter: brightness(1.05);
+    box-shadow: 0 6px 20px rgba(37,99,235,.3), 0 2px 4px rgba(37,99,235,.15);
+}
+.btn-login:active { transform: translateY(1px); }
+.btn-login:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px rgba(37,99,235,.45);
+}
+
+.btn-login svg { width: 16px; height: 16px; }
+
+.error-msg {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--danger-bg);
+    color: var(--danger);
+    border: 1px solid var(--danger-bd);
+    border-left: 3px solid var(--danger);
+    border-radius: var(--radius);
+    padding: 11px 14px;
+    font-size: .8125rem;
+    font-weight: 500;
+    margin-top: 18px;
+}
+.error-msg svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+.login-footer {
+    text-align: center;
+    margin-top: 24px;
+    font-size: .75rem;
+    color: var(--muted-2);
+    letter-spacing: .01em;
+}
+</style>
+</head>
+<body>
+<main class="login-wrap" role="main">
+    <div class="login-brand">
+        <div class="logo" aria-hidden="true">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
+                <line x1="3" y1="6" x2="21" y2="6"/>
+                <path d="M16 10a4 4 0 0 1-8 0"/>
+            </svg>
+        </div>
+        <h1><?= htmlspecialchars(APP_NAME) ?></h1>
+        <p>Система учёта розничных продаж</p>
+    </div>
+
+    <div class="card">
+        <form method="post" novalidate aria-label="Форма входа">
+            <div class="form-group">
+                <label for="username">Логин</label>
+                <div class="input-wrap">
+                    <input type="text" id="username" name="username"
+                           value="<?= htmlspecialchars($_POST['username'] ?? '') ?>"
+                           required autofocus autocomplete="username"
+                           placeholder="Введите логин">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                        <circle cx="12" cy="7" r="4"/>
+                    </svg>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="password">Пароль</label>
+                <div class="input-wrap">
+                    <input type="password" id="password" name="password"
+                           required autocomplete="current-password"
+                           placeholder="••••••••">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                    </svg>
+                </div>
+            </div>
+            <button type="submit" class="btn-login">
+                Войти
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+                </svg>
+            </button>
+            <?php if ($error): ?>
+            <div class="error-msg" role="alert">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <?= htmlspecialchars($error) ?>
+            </div>
+            <?php endif; ?>
+        </form>
+    </div>
+    <div class="login-footer">© <?= date('Y') ?> · <?= htmlspecialchars(APP_NAME) ?></div>
+</main>
+</body>
+</html>
