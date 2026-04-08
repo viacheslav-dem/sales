@@ -1,0 +1,252 @@
+<?php
+/**
+ * JSON-endpoint автосохранения экрана «Продажи за день».
+ *
+ * Принимает application/json:
+ *   {
+ *     "date": "YYYY-MM-DD",
+ *     "ops": [
+ *       { "local_key": "n1", "id": null|int, "pid": int,
+ *         "qty": int, "uprice": "12.34",
+ *         "payment": "cash|card|other", "note": "..." },
+ *       ...
+ *     ],
+ *     "deleted": [int, ...],
+ *     "returns": { "<original_sale_id>": qty, ... }
+ *   }
+ *
+ * Возвращает JSON:
+ *   { "ok": true, "id_map": {"n1": 42, "n2": 43} }
+ *   { "ok": false, "error": "..." }
+ *
+ * id_map нужен клиенту, чтобы после INSERT'а новой продажи перепривязать
+ * локальный ключ ("n1") к серверному id (42) — следующие правки той же
+ * строки полетят как UPDATE по id, а не как новая INSERT.
+ *
+ * CSRF-токен передаётся через заголовок X-CSRF-Token (csrf_check() читает
+ * $_POST, поэтому здесь сравниваем вручную).
+ */
+
+require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/helpers.php';
+require_login();
+
+header('Content-Type: application/json; charset=utf-8');
+
+/** Унифицированный JSON-ответ + завершение запроса. */
+function json_out(array $payload, int $status = 200): void {
+    http_response_code($status);
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// CSRF: токен в заголовке
+$sentToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+if (!is_string($sentToken) || !hash_equals($_SESSION['csrf'] ?? '', $sentToken)) {
+    json_out(['ok' => false, 'error' => 'CSRF token mismatch'], 419);
+}
+
+// Тело запроса
+$raw = file_get_contents('php://input');
+$payload = json_decode($raw, true);
+if (!is_array($payload)) {
+    json_out(['ok' => false, 'error' => 'Invalid JSON payload'], 400);
+}
+
+$pdo   = db();
+$today = date('Y-m-d');
+
+$postDate = $payload['date'] ?? $today;
+if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $postDate)) $postDate = $today;
+
+// Защита: продажи прошлых месяцев правит только администратор
+if (is_past_month($postDate) && !is_admin()) {
+    json_out(['ok' => false, 'error' => 'Редактирование закрытых периодов доступно только администратору'], 403);
+}
+
+$ALLOWED_PAYMENTS = ['cash', 'card', 'other'];
+$idMap = [];
+$timeMap = []; // localKey → sold_at, чтобы клиент сразу проставил время в строке
+
+try {
+    // Каталожные цены на дату — для НОВЫХ строк продаж
+    $priceStmt = $pdo->prepare(<<<SQL
+        SELECT p.id,
+            COALESCE((
+                SELECT pp.price FROM product_prices pp
+                WHERE pp.product_id = p.id AND pp.valid_from <= ?
+                ORDER BY pp.valid_from DESC LIMIT 1
+            ), 0) AS price
+        FROM products p
+    SQL);
+    $priceStmt->execute([$postDate]);
+    $priceMap = [];
+    foreach ($priceStmt->fetchAll() as $r) {
+        $priceMap[(int)$r['id']] = (float)$r['price'];
+    }
+
+    $insertSale = $pdo->prepare(
+        "INSERT INTO sales
+            (product_id, sale_date, quantity, base_price, unit_price, amount,
+             discount_amount, is_return, original_sale_id,
+             sold_at, payment_method, note)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?)"
+    );
+    $updateSale = $pdo->prepare(
+        "UPDATE sales
+         SET quantity = ?, unit_price = ?, amount = ?, discount_amount = ?,
+             payment_method = ?, note = ?
+         WHERE id = ? AND sale_date = ? AND is_return = 0"
+    );
+    $loadBasePrice = $pdo->prepare(
+        "SELECT base_price FROM sales WHERE id = ? AND is_return = 0"
+    );
+    $deleteSaleById = $pdo->prepare(
+        "DELETE FROM sales WHERE id = ? AND sale_date = ? AND is_return = 0"
+    );
+    $deleteReturnsByOrig = $pdo->prepare(
+        "DELETE FROM sales WHERE original_sale_id = ? AND is_return = 1"
+    );
+
+    $pdo->beginTransaction();
+
+    // 0) Удаления продаж по списку id ---------------------------
+    $deletedIds = $payload['deleted'] ?? [];
+    if (is_array($deletedIds)) {
+        foreach ($deletedIds as $rawId) {
+            $id = (int)$rawId;
+            if ($id <= 0) continue;
+            $deleteReturnsByOrig->execute([$id]);
+            $deleteSaleById->execute([$id, $postDate]);
+        }
+    }
+
+    // 1) Создание/обновление продаж ----------------------------
+    $ops = $payload['ops'] ?? [];
+    if (is_array($ops)) {
+        foreach ($ops as $op) {
+            if (!is_array($op)) continue;
+            $localKey = isset($op['local_key']) ? (string)$op['local_key'] : '';
+            $pid = (int)($op['pid'] ?? 0);
+            $qty = max(0, (int)($op['qty'] ?? 0));
+            if ($pid <= 0 || $qty <= 0) continue;
+
+            $rawUprice = $op['uprice'] ?? null;
+            $unitPrice = $rawUprice !== null
+                ? max(0, (float)str_replace(',', '.', (string)$rawUprice))
+                : ($priceMap[$pid] ?? 0.0);
+            $amount = round($qty * $unitPrice, 2);
+
+            $payment = (string)($op['payment'] ?? 'cash');
+            if (!in_array($payment, $ALLOWED_PAYMENTS, true)) $payment = 'cash';
+
+            $note = trim((string)($op['note'] ?? ''));
+            if ($note === '') $note = null;
+            if ($note !== null && mb_strlen($note) > 500) {
+                $note = mb_substr($note, 0, 500);
+            }
+
+            $opId = isset($op['id']) && $op['id'] !== null && $op['id'] !== ''
+                ? (int)$op['id'] : 0;
+
+            if ($opId > 0) {
+                // Обновление существующей продажи. base_price и sold_at не трогаем.
+                $loadBasePrice->execute([$opId]);
+                $basePrice = (float)($loadBasePrice->fetchColumn() ?: 0);
+                $discount  = max(0, round($qty * $basePrice - $amount, 2));
+                $updateSale->execute([
+                    $qty, $unitPrice, $amount, $discount,
+                    $payment, $note, $opId, $postDate,
+                ]);
+            } else {
+                // Новая продажа.
+                $basePrice = $priceMap[$pid] ?? 0.0;
+                $discount  = max(0, round($qty * $basePrice - $amount, 2));
+                $soldAt = ($postDate === $today)
+                    ? date('Y-m-d H:i:s')
+                    : ($postDate . ' 12:00:00');
+                $insertSale->execute([
+                    $pid, $postDate, $qty, $basePrice, $unitPrice, $amount,
+                    $discount, $soldAt, $payment, $note,
+                ]);
+                $newId = (int)$pdo->lastInsertId();
+                if ($localKey !== '') {
+                    $idMap[$localKey] = $newId;
+                    $timeMap[$localKey] = $soldAt;
+                }
+            }
+        }
+    }
+
+    // 2) Возвраты — только если открыт «сегодня» -----------------
+    $returns = $payload['returns'] ?? [];
+    if ($postDate === $today && is_array($returns) && !empty($returns)) {
+        $loadOrig = $pdo->prepare(
+            "SELECT id, product_id, quantity, base_price, unit_price, payment_method
+             FROM sales WHERE id = ? AND is_return = 0"
+        );
+        $sumOtherReturns = $pdo->prepare(
+            "SELECT COALESCE(SUM(quantity), 0) FROM sales
+             WHERE original_sale_id = ? AND is_return = 1 AND sale_date <> ?"
+        );
+        $findTodayRet = $pdo->prepare(
+            "SELECT id FROM sales
+             WHERE original_sale_id = ? AND is_return = 1 AND sale_date = ?"
+        );
+        $deleteRet = $pdo->prepare("DELETE FROM sales WHERE id = ?");
+        $updateRet = $pdo->prepare(
+            "UPDATE sales SET quantity = ?, base_price = ?, unit_price = ?, amount = ?, discount_amount = ?
+             WHERE id = ?"
+        );
+        $insertRet = $pdo->prepare(
+            "INSERT INTO sales
+                (product_id, sale_date, quantity, base_price, unit_price, amount,
+                 discount_amount, is_return, original_sale_id, sold_at, payment_method)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)"
+        );
+
+        foreach ($returns as $origId => $rawQty) {
+            $origId = (int)$origId;
+            $qty = max(0, (int)$rawQty);
+
+            $loadOrig->execute([$origId]);
+            $orig = $loadOrig->fetch();
+            if (!$orig) continue;
+
+            $sumOtherReturns->execute([$origId, $today]);
+            $returnedOther = (int)$sumOtherReturns->fetchColumn();
+            $maxAllowed    = max(0, (int)$orig['quantity'] - $returnedOther);
+            if ($qty > $maxAllowed) $qty = $maxAllowed;
+
+            $findTodayRet->execute([$origId, $today]);
+            $existingId = $findTodayRet->fetchColumn();
+
+            if ($qty === 0) {
+                if ($existingId) $deleteRet->execute([$existingId]);
+                continue;
+            }
+
+            $bp = (float)$orig['base_price'];
+            $up = (float)$orig['unit_price'];
+            $amount = round($qty * $up, 2);
+            $disc   = max(0, round($qty * $bp - $amount, 2));
+
+            if ($existingId) {
+                $updateRet->execute([$qty, $bp, $up, $amount, $disc, $existingId]);
+            } else {
+                $origPayment = $orig['payment_method'] ?: 'cash';
+                $insertRet->execute([
+                    (int)$orig['product_id'], $today,
+                    $qty, $bp, $up, $amount, $disc, $origId,
+                    date('Y-m-d H:i:s'), $origPayment,
+                ]);
+            }
+        }
+    }
+
+    $pdo->commit();
+    json_out(['ok' => true, 'id_map' => $idMap, 'times' => $timeMap]);
+} catch (\Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    json_out(['ok' => false, 'error' => $e->getMessage()], 500);
+}

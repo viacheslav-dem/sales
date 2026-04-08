@@ -93,19 +93,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do_import'])) {
                 VALUES (?, ?, ?)
                 ON CONFLICT(product_id, valid_from) DO UPDATE SET price = excluded.price
             SQL;
-            $upsertSaleSql    = <<<SQL
-                INSERT INTO sales (product_id, sale_date, quantity, base_price, unit_price, amount)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(product_id, sale_date) DO UPDATE SET
-                    quantity   = excluded.quantity,
-                    base_price = excluded.base_price,
-                    unit_price = excluded.unit_price,
-                    amount     = excluded.amount
-            SQL;
+            // Импорт идёт по дневным агрегатам из Excel: на (товар, день) создаётся
+            // одна сводная строка. Чтобы повторный запуск был идемпотентным, перед
+            // вставкой удаляем все обычные продажи этого (товара, дня).
+            // Возвраты (is_return = 1) не трогаем — они хранят живые операции магазина.
+            $deleteSaleSql = "DELETE FROM sales
+                              WHERE product_id = ? AND sale_date = ? AND is_return = 0";
+            // Импортированные строки получают sold_at = полдень дня (точное время неизвестно)
+            // и payment_method = NULL (источник не различает наличные/карту).
+            $insertSaleSql = "INSERT INTO sales
+                                (product_id, sale_date, quantity, base_price, unit_price, amount,
+                                 discount_amount, sold_at, payment_method)
+                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)";
 
             $insertProduct = $pdo->prepare($insertProductSql);
             $upsertPrice   = $pdo->prepare($upsertPriceSql);
-            $upsertSale    = $pdo->prepare($upsertSaleSql);
+            $deleteSale    = $pdo->prepare($deleteSaleSql);
+            $insertSale    = $pdo->prepare($insertSaleSql);
 
             $totalProducts = 0;
             $totalSales    = 0;
@@ -195,7 +199,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do_import'])) {
                             if ($amount < 0) $amount = 0;
 
                             $unitPrice = round($amount / $qty, 4);
-                            $upsertSale->execute([$pid, $dateStr, $qty, $price, $unitPrice, $amount]);
+                            $discount  = max(0, round($qty * $price - $amount, 2));
+                            $deleteSale->execute([$pid, $dateStr]);
+                            $insertSale->execute([
+                                $pid, $dateStr, $qty, $price, $unitPrice, $amount,
+                                $discount, $dateStr . ' 12:00:00',
+                            ]);
                             $sheetSales++;
                             $totalSales++;
                         }

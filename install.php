@@ -76,21 +76,26 @@ CREATE TABLE IF NOT EXISTS product_prices (
 );
 
 CREATE TABLE IF NOT EXISTS sales (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_id INTEGER NOT NULL,
-    sale_date  TEXT    NOT NULL,
-    quantity   INTEGER NOT NULL DEFAULT 0,
-    base_price REAL    NOT NULL DEFAULT 0,
-    unit_price REAL    NOT NULL DEFAULT 0,
-    amount     REAL    NOT NULL DEFAULT 0,
-    is_return  INTEGER NOT NULL DEFAULT 0,
-    UNIQUE(product_id, sale_date, is_return),
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id       INTEGER NOT NULL,
+    sale_date        TEXT    NOT NULL,
+    quantity         INTEGER NOT NULL DEFAULT 0,
+    base_price       REAL    NOT NULL DEFAULT 0,
+    unit_price       REAL    NOT NULL DEFAULT 0,
+    amount           REAL    NOT NULL DEFAULT 0,
+    discount_amount  REAL    NOT NULL DEFAULT 0,
+    is_return        INTEGER NOT NULL DEFAULT 0,
+    original_sale_id INTEGER NULL REFERENCES sales(id),
+    sold_at          TEXT    NULL,
+    payment_method   TEXT    NULL,
+    note             TEXT    NULL,
     FOREIGN KEY (product_id) REFERENCES products(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_sales_date     ON sales(sale_date);
 CREATE INDEX IF NOT EXISTS idx_sales_product  ON sales(product_id);
 CREATE INDEX IF NOT EXISTS idx_sales_return   ON sales(is_return);
+CREATE INDEX IF NOT EXISTS idx_sales_orig     ON sales(original_sale_id);
 CREATE INDEX IF NOT EXISTS idx_products_cat   ON products(category_id);
 SQL
     );
@@ -155,6 +160,75 @@ function migrate_schema(PDO $pdo): array {
         } else {
             // На всякий случай добавим индексы, если их нет
             $pdo->exec("CREATE INDEX IF NOT EXISTS idx_sales_return ON sales(is_return)");
+        }
+
+        // ── sales.original_sale_id + снятие старого UNIQUE ───
+        // Старый UNIQUE(product_id, sale_date, is_return) запрещал больше
+        // одного возврата по одному товару в день. Теперь возврат
+        // привязывается к конкретной продаже, поэтому уникальность
+        // нужна только на «нормальных» продажах: один (товар, день).
+        if (!column_exists($pdo, 'sales', 'original_sale_id')) {
+            $pdo->exec("ALTER TABLE sales RENAME TO sales_old3");
+            $pdo->exec("
+                CREATE TABLE sales (
+                    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                    product_id       INTEGER NOT NULL,
+                    sale_date        TEXT    NOT NULL,
+                    quantity         INTEGER NOT NULL DEFAULT 0,
+                    base_price       REAL    NOT NULL DEFAULT 0,
+                    unit_price       REAL    NOT NULL DEFAULT 0,
+                    amount           REAL    NOT NULL DEFAULT 0,
+                    is_return        INTEGER NOT NULL DEFAULT 0,
+                    original_sale_id INTEGER NULL REFERENCES sales(id),
+                    FOREIGN KEY (product_id) REFERENCES products(id)
+                )
+            ");
+            $pdo->exec("
+                INSERT INTO sales (id, product_id, sale_date, quantity, base_price, unit_price, amount, is_return, original_sale_id)
+                SELECT id, product_id, sale_date, quantity, base_price, unit_price, amount, is_return, NULL
+                FROM sales_old3
+            ");
+            $pdo->exec("DROP TABLE sales_old3");
+            $pdo->exec("CREATE INDEX IF NOT EXISTS idx_sales_date    ON sales(sale_date)");
+            $pdo->exec("CREATE INDEX IF NOT EXISTS idx_sales_product ON sales(product_id)");
+            $pdo->exec("CREATE INDEX IF NOT EXISTS idx_sales_return  ON sales(is_return)");
+            $pdo->exec("CREATE INDEX IF NOT EXISTS idx_sales_orig    ON sales(original_sale_id)");
+            $messages[] = ['ok', 'Таблица <code>sales</code>: добавлена связь возврата с исходной продажей (<code>original_sale_id</code>); снято ограничение «один возврат на товар в день».'];
+        }
+
+        // ── sales: время продажи, способ оплаты, явная скидка, заметка ──
+        if (!column_exists($pdo, 'sales', 'sold_at')) {
+            $pdo->exec("ALTER TABLE sales ADD COLUMN sold_at TEXT NULL");
+            $messages[] = ['ok', 'В <code>sales</code> добавлена колонка <code>sold_at</code> (время продажи).'];
+        }
+        if (!column_exists($pdo, 'sales', 'payment_method')) {
+            $pdo->exec("ALTER TABLE sales ADD COLUMN payment_method TEXT NULL");
+            $messages[] = ['ok', 'В <code>sales</code> добавлена колонка <code>payment_method</code> (наличные/карта/другое).'];
+        }
+        if (!column_exists($pdo, 'sales', 'discount_amount')) {
+            $pdo->exec("ALTER TABLE sales ADD COLUMN discount_amount REAL NOT NULL DEFAULT 0");
+            // Backfill: для существующих обычных продаж сумма скидки = qty*base − amount.
+            // Для возвратов хранится та же величина (унаследована от исходной продажи).
+            $pdo->exec("UPDATE sales
+                        SET discount_amount = ROUND(quantity * base_price - amount, 2)
+                        WHERE quantity * base_price - amount > 0");
+            $messages[] = ['ok', 'В <code>sales</code> добавлена колонка <code>discount_amount</code> (сумма скидки на строку, заполнена из существующих данных).'];
+        }
+        if (!column_exists($pdo, 'sales', 'note')) {
+            $pdo->exec("ALTER TABLE sales ADD COLUMN note TEXT NULL");
+            $messages[] = ['ok', 'В <code>sales</code> добавлена колонка <code>note</code> (заметка к продаже).'];
+        }
+
+        // ── sales: снимаем UNIQUE(product_id, sale_date) ─────
+        // Старая модель «одна продажа на товар в день» не подходит для розницы:
+        // одну и ту же позицию могут пробить дважды по разным ценам
+        // (одному со скидкой, другому без). Каждая продажа теперь = отдельная строка.
+        $hasUniqIndex = (bool)$pdo->query(
+            "SELECT 1 FROM sqlite_master WHERE type='index' AND name='uniq_sales_normal'"
+        )->fetchColumn();
+        if ($hasUniqIndex) {
+            $pdo->exec("DROP INDEX uniq_sales_normal");
+            $messages[] = ['ok', 'Снят уникальный индекс <code>uniq_sales_normal</code>: теперь можно вбить несколько продаж одного товара за день по разным ценам.'];
         }
 
         // ── users.role ────────────────────────────────────────

@@ -106,7 +106,7 @@ layout_header('Категории');
         <input type="text" id="new-cat-name" name="name" class="w-input-lg" placeholder="Например: Постельное бельё" required>
         <label for="new-cat-sort">Порядок</label>
         <input type="number" id="new-cat-sort" name="sort_order" value="0" step="1" class="cat-sort-input" title="Категории сортируются по этому полю по возрастанию">
-        <button type="submit" class="btn btn-success"><?= icon('plus', 16) ?>Добавить</button>
+        <button type="submit" class="btn btn-primary"><?= icon('plus', 16) ?>Добавить</button>
     </form>
 </div>
 
@@ -115,11 +115,11 @@ layout_header('Категории');
     <table>
         <thead>
             <tr>
-                <th style="width:48px">#</th>
+                <th class="col-w-48">#</th>
                 <th>Название</th>
-                <th class="num" style="width:120px">Порядок</th>
-                <th class="num" style="width:140px">Товаров</th>
-                <th style="width:240px">Действия</th>
+                <th class="num col-w-120">Порядок</th>
+                <th class="num col-w-140">Товаров</th>
+                <th class="col-w-240">Действия</th>
             </tr>
         </thead>
         <tbody>

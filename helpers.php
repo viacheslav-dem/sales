@@ -147,6 +147,17 @@ function valid_date(string $s): bool {
     return checkdate($m, $d, $y);
 }
 
+/**
+ * Возвращает true, если дата находится в месяце, более раннем, чем текущий.
+ * Используется для блокировки редактирования прошлых месяцев менеджерами:
+ * только администратор может править закрытые отчётные периоды.
+ */
+function is_past_month(string $date): bool {
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) return false;
+    return substr($date, 0, 7) < date('Y-m');
+}
+
+
 /* ============================================================
    КОММОН: SQL-фрагменты для агрегации с учётом возвратов
    ============================================================ */
@@ -156,10 +167,13 @@ function valid_date(string $s): bool {
  * для использования в SELECT-листе.
  */
 function _signed_sums(string $alias = 's'): string {
+    // Скидка берётся из явного поля discount_amount (заполняется при сохранении
+    // продажи и при backfill-миграции). Это позволяет хранить «истинную» скидку,
+    // даже если из-за округления qty*unit_price расходится с qty*base − discount.
     return "
         SUM($alias.quantity *  CASE WHEN $alias.is_return = 1 THEN -1 ELSE 1 END) AS net_qty,
         SUM($alias.amount   *  CASE WHEN $alias.is_return = 1 THEN -1 ELSE 1 END) AS net_sum,
-        SUM(($alias.quantity * $alias.base_price - $alias.amount) *
+        SUM($alias.discount_amount *
             CASE WHEN $alias.is_return = 1 THEN -1 ELSE 1 END) AS net_discount
     ";
 }
@@ -526,6 +540,76 @@ function product_price_on(PDO $pdo, int $productId, string $onDate): float {
     );
     $stmt->execute([$productId, $onDate]);
     return (float)($stmt->fetchColumn() ?: 0);
+}
+
+/**
+ * Рендер пагинации (один общий компонент для products/history и любых
+ * новых таблиц со списками). Эхает HTML — вызывать там, где нужна разметка.
+ *
+ * @param int      $page        Текущая страница (1-based).
+ * @param int      $totalPages  Всего страниц.
+ * @param int      $totalCount  Всего записей (для строки «X из Y»).
+ * @param int      $perPage     Размер страницы.
+ * @param int      $offset      Смещение (для расчёта диапазона «N–M»).
+ * @param callable $urlFor      fn(int $page): string — построитель URL для страницы.
+ * @param int      $range       Сколько соседних номеров показывать слева/справа от текущего.
+ *
+ * Контракт: если $totalPages <= 1 — ничего не выводится.
+ * Шаблон <div class="pagination-wrap"><div class="pagination">…</div></div>
+ * соответствует существующим стилям в style.css.
+ */
+function render_pagination(
+    int $page,
+    int $totalPages,
+    int $totalCount,
+    int $perPage,
+    int $offset,
+    callable $urlFor,
+    int $range = 2
+): void {
+    if ($totalPages <= 1) return;
+
+    $start = max(1, $page - $range);
+    $end   = min($totalPages, $page + $range);
+    $h     = fn(string $s) => htmlspecialchars($s, ENT_QUOTES);
+    ?>
+    <div class="pagination-wrap">
+        <div class="pagination" role="navigation" aria-label="Постраничная навигация">
+            <?php if ($page > 1): ?>
+                <a href="<?= $h($urlFor(1)) ?>" aria-label="Первая страница" title="Первая страница">«</a>
+                <a href="<?= $h($urlFor($page - 1)) ?>" aria-label="Предыдущая страница" title="Предыдущая страница" rel="prev">‹</a>
+            <?php endif; ?>
+
+            <?php if ($start > 1): ?>
+                <a href="<?= $h($urlFor(1)) ?>">1</a>
+                <?php if ($start > 2): ?><span class="dots" aria-hidden="true">…</span><?php endif; ?>
+            <?php endif; ?>
+
+            <?php for ($p = $start; $p <= $end; $p++): ?>
+                <?php if ($p === $page): ?>
+                    <span class="current" aria-current="page"><?= $p ?></span>
+                <?php else: ?>
+                    <a href="<?= $h($urlFor($p)) ?>"><?= $p ?></a>
+                <?php endif; ?>
+            <?php endfor; ?>
+
+            <?php if ($end < $totalPages): ?>
+                <?php if ($end < $totalPages - 1): ?><span class="dots" aria-hidden="true">…</span><?php endif; ?>
+                <a href="<?= $h($urlFor($totalPages)) ?>"><?= $totalPages ?></a>
+            <?php endif; ?>
+
+            <?php if ($page < $totalPages): ?>
+                <a href="<?= $h($urlFor($page + 1)) ?>" aria-label="Следующая страница" title="Следующая страница" rel="next">›</a>
+                <a href="<?= $h($urlFor($totalPages)) ?>" aria-label="Последняя страница" title="Последняя страница">»</a>
+            <?php endif; ?>
+
+            <span class="filter-info">
+                Стр. <?= $page ?> из <?= $totalPages ?>
+                (<?= $offset + 1 ?>–<?= min($offset + $perPage, $totalCount) ?> из <?= $totalCount ?>)
+            </span>
+        </div>
+    </div>
+    <?php
 }
 
 /** Все категории отсортированные по sort_order, name. */

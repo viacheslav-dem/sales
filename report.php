@@ -25,6 +25,8 @@ if ($preset === 'custom') {
     if (!isset($presetsList[$preset])) $preset = 'this_month';
     [$from, $to] = period_preset($preset);
 }
+// Сохранение фильтров между визитами — клиентское (localStorage),
+// см. layout_header(..., 'report').
 
 // ── Данные ─────────────────────────────────────────────────
 $opts = ['group_by' => $groupBy];
@@ -102,7 +104,7 @@ $groupNames = [
 
 $weekdayShort = weekday_names_short();
 
-layout_header('Отчёт по продажам', true);
+layout_header('Отчёт по продажам', true, 'report');
 ?>
 <h1 class="page-title">Отчёт по продажам</h1>
 
@@ -165,7 +167,7 @@ layout_header('Отчёт по продажам', true);
             <div class="filter-item">
                 <label>&nbsp;</label>
                 <a href="export.php?from=<?= $from ?>&to=<?= $to ?>&group=<?= $groupBy ?><?= $catId !== null ? '&cat=' . $catId : '' ?>"
-                   class="btn btn-success"><?= icon('download', 16) ?>Экспорт в Excel</a>
+                   class="btn btn-secondary"><?= icon('download', 16) ?>Экспорт в Excel</a>
             </div>
             <?php endif; ?>
         </div>
@@ -328,41 +330,41 @@ function buildSortUrl(string $sort): string {
         ?>
         <?php if ($groupBy === 'product'): ?>
             <tr>
-                <th style="width:36px">#</th>
+                <th class="col-w-36">#</th>
                 <th class="<?= $nameCls ?>"><?= $nameLink ?></th>
-                <th style="width:170px">Категория</th>
-                <th class="num" style="width:90px">Прайс</th>
-                <th class="num <?= $qtyCls ?>" style="width:80px"><?= $qtyLink ?></th>
-                <th class="num <?= $discCls ?>" style="width:100px"><?= $discLink ?></th>
-                <th class="num col-divider <?= $sumCls ?>" style="width:120px"><?= $sumLink ?></th>
-                <th style="width:60px" class="num">Доля</th>
+                <th class="col-w-170">Категория</th>
+                <th class="num col-w-90">Прайс</th>
+                <th class="num col-w-80 <?= $qtyCls ?>"><?= $qtyLink ?></th>
+                <th class="num col-w-100 <?= $discCls ?>"><?= $discLink ?></th>
+                <th class="num col-divider col-w-120 <?= $sumCls ?>"><?= $sumLink ?></th>
+                <th class="num col-w-60">Доля</th>
             </tr>
         <?php elseif ($groupBy === 'category'): ?>
             <tr>
-                <th style="width:36px">#</th>
+                <th class="col-w-36">#</th>
                 <th class="<?= $catCls ?>"><?= $catLink ?></th>
-                <th class="num <?= $qtyCls ?>" style="width:90px"><?= $qtyLink ?></th>
-                <th class="num <?= $discCls ?>" style="width:110px"><?= $discLink ?></th>
-                <th class="num col-divider <?= $sumCls ?>" style="width:140px"><?= $sumLink ?></th>
-                <th style="width:60px" class="num">Доля</th>
+                <th class="num col-w-90 <?= $qtyCls ?>"><?= $qtyLink ?></th>
+                <th class="num col-w-110 <?= $discCls ?>"><?= $discLink ?></th>
+                <th class="num col-divider col-w-140 <?= $sumCls ?>"><?= $sumLink ?></th>
+                <th class="num col-w-60">Доля</th>
             </tr>
         <?php elseif ($groupBy === 'day'): ?>
             <tr>
-                <th style="width:36px">#</th>
+                <th class="col-w-36">#</th>
                 <th>Дата</th>
-                <th style="width:120px">День недели</th>
-                <th class="num <?= $qtyCls ?>" style="width:90px"><?= $qtyLink ?></th>
-                <th class="num <?= $discCls ?>" style="width:110px"><?= $discLink ?></th>
-                <th class="num col-divider <?= $sumCls ?>" style="width:140px"><?= $sumLink ?></th>
-                <th style="width:60px" class="num">Доля</th>
+                <th class="col-w-120">День недели</th>
+                <th class="num col-w-90 <?= $qtyCls ?>"><?= $qtyLink ?></th>
+                <th class="num col-w-110 <?= $discCls ?>"><?= $discLink ?></th>
+                <th class="num col-divider col-w-140 <?= $sumCls ?>"><?= $sumLink ?></th>
+                <th class="num col-w-60">Доля</th>
             </tr>
         <?php else: // weekday ?>
             <tr>
                 <th class="<?= $dayCls ?>"><?= $dayLink ?></th>
-                <th class="num <?= $qtyCls ?>" style="width:90px"><?= $qtyLink ?></th>
-                <th class="num <?= $discCls ?>" style="width:110px"><?= $discLink ?></th>
-                <th class="num col-divider <?= $sumCls ?>" style="width:140px"><?= $sumLink ?></th>
-                <th style="width:60px" class="num">Доля</th>
+                <th class="num col-w-90 <?= $qtyCls ?>"><?= $qtyLink ?></th>
+                <th class="num col-w-110 <?= $discCls ?>"><?= $discLink ?></th>
+                <th class="num col-divider col-w-140 <?= $sumCls ?>"><?= $sumLink ?></th>
+                <th class="num col-w-60">Доля</th>
             </tr>
         <?php endif; ?>
     </thead>

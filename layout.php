@@ -68,7 +68,7 @@ function icon_sprite(): string {
     return "<svg $attrs><defs>$defs</defs></svg>";
 }
 
-function layout_header(string $title = '', bool $wide = false): void {
+function layout_header(string $title = '', bool $wide = false, ?string $filterKey = null): void {
     require_once __DIR__ . '/auth.php';
 
     $user      = current_user();
@@ -109,18 +109,32 @@ function layout_header(string $title = '', bool $wide = false): void {
 <script src="assets/chart.umd.min.js?v=<?= asset_v('assets/chart.umd.min.js') ?>" defer></script>
 <script src="assets/charts.js?v=<?= asset_v('assets/charts.js') ?>" defer></script>
 
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82f6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z'/><line x1='3' y1='6' x2='21' y2='6'/><path d='M16 10a4 4 0 0 1-8 0'/></svg>">
+<link rel="icon" type="image/webp" href="favicon.png.webp?v=<?= asset_v('favicon.png.webp') ?>">
+<?php if ($filterKey !== null): ?>
+<meta name="filter-key" content="<?= htmlspecialchars($filterKey, ENT_QUOTES) ?>">
+<?php endif; ?>
 </head>
 <body>
 <?= icon_sprite() ?>
 <a href="#main-content" class="skip-link">Перейти к содержимому</a>
 <nav role="navigation" aria-label="Основная навигация">
-    <div class="brand">
-        <?= icon('shopping-bag', 22) ?>
+    <a href="dashboard.php" class="brand" aria-label="<?= htmlspecialchars(APP_NAME) ?> — на главную">
+        <img src="favicon.png.webp?v=<?= asset_v('favicon.png.webp') ?>"
+             width="32" height="32"
+             alt=""
+             class="brand-logo"
+             decoding="async">
         <span class="brand-text"><?= htmlspecialchars(APP_NAME) ?></span>
-    </div>
-    <?php foreach ($nav as $file => [$label, $iconName, $adminOnly]): ?>
-        <?php if ($adminOnly && !$userIsAdmin) continue; ?>
+    </a>
+    <?php
+    $adminInserted = false;
+    foreach ($nav as $file => [$label, $iconName, $adminOnly]):
+        if ($adminOnly && !$userIsAdmin) continue;
+        // Визуальный разделитель перед админ-зоной (Пользователи / Импорт)
+        if ($adminOnly && !$adminInserted):
+            $adminInserted = true; ?>
+            <span class="nav-divider" aria-hidden="true"></span>
+        <?php endif; ?>
     <a href="<?= $file ?>" class="<?= $cur === $file ? 'active' : '' ?>"<?= $cur === $file ? ' aria-current="page"' : '' ?>>
         <?= icon($iconName, 16) ?>
         <span><?= $label ?></span>
@@ -128,10 +142,10 @@ function layout_header(string $title = '', bool $wide = false): void {
     <?php endforeach; ?>
     <div class="spacer"></div>
     <span class="user" title="<?= htmlspecialchars($user['username']) ?>">
-        <?= icon('user', 16) ?>
-        <span><?= htmlspecialchars($user['username']) ?></span>
+        <span class="user-avatar" aria-hidden="true"><?= htmlspecialchars(mb_strtoupper(mb_substr($user['username'], 0, 1))) ?></span>
+        <span class="user-name"><?= htmlspecialchars($user['username']) ?></span>
     </span>
-    <a href="logout.php" class="nav-logout" title="Выйти">
+    <a href="logout.php" class="nav-logout" title="Выйти" aria-label="Выйти из системы">
         <?= icon('logout', 16) ?>
         <span>Выйти</span>
     </a>

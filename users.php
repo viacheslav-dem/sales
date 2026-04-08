@@ -130,7 +130,7 @@ layout_header('Пользователи');
                 <option value="<?= $key ?>" <?= $key === 'manager' ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
             <?php endforeach; ?>
         </select>
-        <button type="submit" class="btn btn-success"><?= icon('plus', 16) ?>Добавить</button>
+        <button type="submit" class="btn btn-primary"><?= icon('plus', 16) ?>Добавить</button>
     </form>
 </div>
 
@@ -139,10 +139,10 @@ layout_header('Пользователи');
     <table class="table-cols">
         <thead>
             <tr>
-                <th style="width:48px">#</th>
+                <th class="col-w-48">#</th>
                 <th>Логин</th>
-                <th style="width:200px">Роль</th>
-                <th style="width:280px">Действия</th>
+                <th class="col-w-200">Роль</th>
+                <th class="col-w-280">Действия</th>
             </tr>
         </thead>
         <tbody>
@@ -160,7 +160,8 @@ layout_header('Пользователи');
                         <?= csrf_field() ?>
                         <input type="hidden" name="action" value="role">
                         <input type="hidden" name="id" value="<?= $u['id'] ?>">
-                        <select name="role" data-auto-submit-form>
+                        <select name="role" data-auto-submit-form
+                                aria-label="Роль пользователя <?= htmlspecialchars($u['username'], ENT_QUOTES) ?>">
                             <?php foreach ($rolesList as $key => $label): ?>
                                 <option value="<?= $key ?>" <?= $u['role'] === $key ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
                             <?php endforeach; ?>

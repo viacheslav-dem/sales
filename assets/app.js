@@ -135,14 +135,28 @@
         overlay.classList.remove('open');
         unlockBodyScroll();
 
-        // Если стек пуст — вернуть inert на задний фон
+        // Пересчёт inert на фоне.
+        //   • стек пуст → main и nav снова кликабельны;
+        //   • в стеке осталась модалка ВНУТРИ main (например, мы закрывали
+        //     confirm поверх return-modal) → снимаем inert с main, иначе
+        //     оставшаяся модалка окажется «замороженной».
+        const main = document.getElementById('main-content');
+        const nav  = document.querySelector('nav[role="navigation"]');
         if (modalStack.length === 0) {
-            document.getElementById('main-content')?.removeAttribute('inert');
-            document.querySelector('nav[role="navigation"]')?.removeAttribute('inert');
+            main?.removeAttribute('inert');
+            nav?.removeAttribute('inert');
+        } else {
+            const top = modalStack[modalStack.length - 1];
+            if (main && top.overlay && main.contains(top.overlay)) {
+                main.removeAttribute('inert');
+            }
         }
 
         // Вернуть фокус
         try { entry.prevFocus?.focus?.(); } catch (e) { /* element might be gone */ }
+
+        // Уведомить подписчиков (например, confirmDialog) о закрытии
+        overlay.dispatchEvent(new CustomEvent('modal:closed'));
     }
 
     /** Закрытие верхней модалки при клике по overlay вне box. */
@@ -196,17 +210,24 @@
         okBtn.className = 'btn ' + (opts.variant === 'primary' ? 'btn-primary' : 'btn-danger');
 
         return new Promise(resolve => {
+            let settled = false;
             function cleanup(result) {
+                if (settled) return;
+                settled = true;
                 okBtn.removeEventListener('click', onOk);
                 cancelBtn.removeEventListener('click', onCancel);
+                el.removeEventListener('modal:closed', onExternalClose);
                 closeModal(el);
                 resolve(result);
             }
-            function onOk()     { cleanup(true);  }
-            function onCancel() { cleanup(false); }
+            function onOk()             { cleanup(true);  }
+            function onCancel()         { cleanup(false); }
+            // Если модалку закрыли через Esc или клик по overlay — расцениваем как «отмена»
+            function onExternalClose()  { cleanup(false); }
 
             okBtn.addEventListener('click', onOk);
             cancelBtn.addEventListener('click', onCancel);
+            el.addEventListener('modal:closed', onExternalClose);
             openModal(el, { initialFocus: '[data-confirm-action="cancel"]' });
         });
     }
@@ -360,7 +381,71 @@
         }
         initAutoFilters();
         initAutoSubmitFields();
+        initFilterPersistence();
     });
+
+    // ── Persistence фильтров для history/report ─────────────
+    //
+    // Best practice без редиректа: переписываем outgoing-ссылки на
+    // фильтр-зависимые страницы ДО того, как браузер начнёт навигацию.
+    // Браузер делает один HTTP-запрос сразу с нужными query-параметрами —
+    // никаких location.replace() и связанных с ними «белых вспышек».
+    //
+    // Список страниц, которые поддерживают persistence: жёстко зашит ниже
+    // (это map имя_файла → ключ_localStorage). Сами страницы декларируют
+    // себя через <meta name="filter-key" content="..."> в layout.php.
+    const FILTER_KEYS = {
+        'history.php': 'history',
+        'report.php':  'report',
+    };
+    const STORAGE_PREFIX = 'filters:';
+
+    function initFilterPersistence() {
+        // 1) SAVE: если текущая страница фильтр-зависимая И URL имеет search-параметры,
+        //    запоминаем их. Любой submit формы, клик по сортируемому заголовку и сама
+        //    пагинация сюда попадают — все они идут с параметризованным URL.
+        const meta = document.querySelector('meta[name="filter-key"]');
+        const currentKey = meta ? meta.content : null;
+        if (currentKey && location.search) {
+            const params = location.search.replace(/^\?/, '');
+            try { localStorage.setItem(STORAGE_PREFIX + currentKey, params); } catch (_) {}
+        }
+
+        // 2) REWRITE: переписываем href всех ссылок, ведущих на фильтр-зависимые
+        //    страницы, ДО клика. Браузер делает один запрос сразу с параметрами —
+        //    нет location.replace(), нет промежуточного белого экрана.
+        //
+        //    Делаем это и upfront (при загрузке — для надёжной поддержки middle-click,
+        //    Ctrl+click, контекстного меню), и при каждом click (для свежих значений
+        //    после сохранения новых фильтров на этой же странице без перезагрузки).
+        function rewriteHref(a) {
+            let url;
+            try { url = new URL(a.href, location.href); } catch (_) { return; }
+            if (url.origin !== location.origin) return;
+            if (url.search) return; // у ссылки уже есть параметры — явное намерение автора
+
+            const fname = url.pathname.split('/').pop();
+            const key = FILTER_KEYS[fname];
+            if (!key) return;
+
+            let saved;
+            try { saved = localStorage.getItem(STORAGE_PREFIX + key); } catch (_) { return; }
+            if (!saved) return;
+
+            a.href = url.pathname + '?' + saved;
+        }
+
+        // Upfront rewrite — один проход по всем подходящим ссылкам
+        document.querySelectorAll('a[href]').forEach(rewriteHref);
+
+        // На случай если значения в localStorage изменились во время сессии
+        // (например, пользователь нажал "Сохранить" в форме, обновилось,
+        // потом кликнул в меню) — повторно переписываем при клике.
+        document.addEventListener('click', (e) => {
+            const a = e.target.closest('a[href]');
+            if (a) rewriteHref(a);
+        }, true);
+    }
 
     // ── Экспорт ─────────────────────────────────────────────
     window.App = {

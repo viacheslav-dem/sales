@@ -323,7 +323,7 @@ layout_header('Товары', true);
                 ? 'Найдено: ' . $totalCount . ' из ' . $totalAll
                 : 'Всего: '   . $totalCount ?>
         </span>
-        <button type="button" class="btn btn-success" data-action="open-add-modal" style="margin-left:auto">
+        <button type="button" class="btn btn-primary ms-auto" data-action="open-add-modal">
             <?= icon('plus', 16) ?>Добавить товар
         </button>
     </form>
@@ -344,14 +344,14 @@ layout_header('Товары', true);
     <table class="table-cols">
         <thead>
             <tr>
-                <th style="width:34px">
+                <th class="col-w-34">
                     <input type="checkbox" id="bulk-master" aria-label="Выбрать все на странице">
                 </th>
-                <th style="width:40px">#</th>
+                <th class="col-w-40">#</th>
                 <th>Наименование</th>
-                <th style="width:170px">Категория</th>
-                <th class="num" style="width:160px">Текущая цена (руб.)</th>
-                <th style="width:100px">Действия</th>
+                <th class="col-w-170">Категория</th>
+                <th class="num col-w-160">Текущая цена (руб.)</th>
+                <th class="col-w-100">Действия</th>
             </tr>
         </thead>
         <tbody>
@@ -437,48 +437,10 @@ layout_header('Товары', true);
     </table>
     </div>
 
-    <?php if ($totalPages > 1): ?>
-    <div class="pagination-wrap">
-        <div class="pagination">
-            <?php if ($page > 1): ?>
-                <a href="<?= pageUrl(1, $search, $catFilter, $statusFilter) ?>">«</a>
-                <a href="<?= pageUrl($page - 1, $search, $catFilter, $statusFilter) ?>">‹</a>
-            <?php endif; ?>
-
-            <?php
-            $range = 2;
-            $start = max(1, $page - $range);
-            $end   = min($totalPages, $page + $range);
-            if ($start > 1): ?>
-                <a href="<?= pageUrl(1, $search, $catFilter, $statusFilter) ?>">1</a>
-                <?php if ($start > 2): ?><span class="dots">…</span><?php endif; ?>
-            <?php endif; ?>
-
-            <?php for ($p2 = $start; $p2 <= $end; $p2++): ?>
-                <?php if ($p2 === $page): ?>
-                    <span class="current"><?= $p2 ?></span>
-                <?php else: ?>
-                    <a href="<?= pageUrl($p2, $search, $catFilter, $statusFilter) ?>"><?= $p2 ?></a>
-                <?php endif; ?>
-            <?php endfor; ?>
-
-            <?php if ($end < $totalPages): ?>
-                <?php if ($end < $totalPages - 1): ?><span class="dots">…</span><?php endif; ?>
-                <a href="<?= pageUrl($totalPages, $search, $catFilter, $statusFilter) ?>"><?= $totalPages ?></a>
-            <?php endif; ?>
-
-            <?php if ($page < $totalPages): ?>
-                <a href="<?= pageUrl($page + 1, $search, $catFilter, $statusFilter) ?>">›</a>
-                <a href="<?= pageUrl($totalPages, $search, $catFilter, $statusFilter) ?>">»</a>
-            <?php endif; ?>
-
-            <span class="filter-info">
-                Страница <?= $page ?> из <?= $totalPages ?>
-                (<?= $offset + 1 ?>–<?= min($offset + $perPage, $totalCount) ?> из <?= $totalCount ?>)
-            </span>
-        </div>
-    </div>
-    <?php endif; ?>
+    <?php render_pagination(
+        $page, $totalPages, $totalCount, $perPage, $offset,
+        fn(int $p) => pageUrl($p, $search, $catFilter, $statusFilter)
+    ); ?>
 </div>
 
 <!-- ═══════════════════════════════════════════════════
@@ -516,7 +478,7 @@ layout_header('Товары', true);
             </div>
             <div class="modal-form-footer">
                 <button type="button" class="btn btn-secondary" data-action="close-add-modal">Отмена</button>
-                <button type="submit" class="btn btn-success"><?= icon('plus', 16) ?>Добавить</button>
+                <button type="submit" class="btn btn-primary"><?= icon('plus', 16) ?>Добавить</button>
             </div>
         </form>
     </div>
@@ -621,11 +583,11 @@ layout_header('Товары', true);
                 <table class="bulk-table table-cols">
                     <thead>
                         <tr>
-                            <th style="width:34px">#</th>
+                            <th class="col-w-34">#</th>
                             <th>Наименование</th>
-                            <th style="width:200px">Категория</th>
-                            <th class="num" style="width:130px">Новая цена</th>
-                            <th style="width:34px"></th>
+                            <th class="col-w-200">Категория</th>
+                            <th class="num col-w-130">Новая цена</th>
+                            <th class="col-w-34"></th>
                         </tr>
                     </thead>
                     <tbody id="bulk-rows"></tbody>

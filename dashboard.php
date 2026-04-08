@@ -184,10 +184,10 @@ layout_header('Дашборд');
     <table>
         <thead>
             <tr>
-                <th style="width:48px">#</th>
+                <th class="col-w-48">#</th>
                 <th>Товар</th>
                 <th>Категория</th>
-                <th style="width:140px">Последняя продажа</th>
+                <th class="col-w-140">Последняя продажа</th>
             </tr>
         </thead>
         <tbody>

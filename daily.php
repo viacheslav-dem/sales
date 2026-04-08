@@ -5,84 +5,23 @@ require_once __DIR__ . '/helpers.php';
 require_login();
 
 $pdo   = db();
-$msg   = '';
 $today = date('Y-m-d');
 
 $selDate = $_GET['date'] ?? $today;
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $selDate)) $selDate = $today;
 
-// ── Сохранение ──────────────────────────────────────────────
-//
-// Модель: ключ операции = (product_id, sale_date, is_return).
-// Из формы приходят два массива:
-//   $_POST['qty'][pid][ret]    — количество (ret = 0 продажа, 1 возврат)
-//   $_POST['uprice'][pid][ret] — фактическая цена за единицу
-// Если qty = 0 → строка удаляется.
-//
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    csrf_check();
+// Право на редактирование текущего экрана: продажи прошлых месяцев правит
+// только администратор. Возврат всегда оформляется текущим днём, поэтому
+// блокировка возвратов отдельно не нужна — кнопка возврата на исторических
+// страницах и так не появляется ($canReturn ниже).
+$canEdit = is_admin() || !is_past_month($selDate);
 
-    $postDate = $_POST['date'] ?? $today;
-    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $postDate)) $postDate = $today;
+// Сохранение здесь не обрабатывается — экран работает в режиме autosave.
+// Все мутации улетают на daily_save.php (JSON-endpoint) асинхронно с дебаунсом.
+// Кнопка «Сохранить» в шапке зовёт ту же функцию JS — она нужна как
+// ручной триггер «сохрани прямо сейчас», особенно при флаком интернете.
 
-    // Каталожные цены на дату
-    $priceStmt = $pdo->prepare(<<<SQL
-        SELECT p.id,
-            COALESCE((
-                SELECT pp.price FROM product_prices pp
-                WHERE pp.product_id = p.id AND pp.valid_from <= ?
-                ORDER BY pp.valid_from DESC LIMIT 1
-            ), 0) AS price
-        FROM products p
-    SQL);
-    $priceStmt->execute([$postDate]);
-    $priceMap = [];
-    foreach ($priceStmt->fetchAll() as $r) {
-        $priceMap[(int)$r['id']] = (float)$r['price'];
-    }
-
-    $upsert = $pdo->prepare(<<<SQL
-        INSERT INTO sales (product_id, sale_date, quantity, base_price, unit_price, amount, is_return)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(product_id, sale_date, is_return) DO UPDATE SET
-            quantity   = excluded.quantity,
-            base_price = excluded.base_price,
-            unit_price = excluded.unit_price,
-            amount     = excluded.amount
-    SQL);
-    $delete = $pdo->prepare("DELETE FROM sales WHERE product_id = ? AND sale_date = ? AND is_return = ?");
-
-    $pdo->beginTransaction();
-    foreach ($_POST['qty'] ?? [] as $pid => $byRet) {
-        $pid = (int)$pid;
-        if (!is_array($byRet)) continue;
-
-        foreach ($byRet as $retKey => $rawQty) {
-            $isReturn = (int)$retKey === 1 ? 1 : 0;
-            $qty = max(0, (int)$rawQty);
-
-            if ($qty === 0) {
-                $delete->execute([$pid, $postDate, $isReturn]);
-                continue;
-            }
-
-            $basePrice = $priceMap[$pid] ?? 0.0;
-            $rawUprice = $_POST['uprice'][$pid][$retKey] ?? null;
-            $unitPrice = $rawUprice !== null
-                ? max(0, (float)str_replace(',', '.', $rawUprice))
-                : $basePrice;
-            $amount    = round($qty * $unitPrice, 2);
-
-            $upsert->execute([$pid, $postDate, $qty, $basePrice, $unitPrice, $amount, $isReturn]);
-        }
-    }
-    $pdo->commit();
-
-    $selDate = $postDate;
-    $msg     = 'Данные сохранены.';
-}
-
-// ── Загрузка списка товаров и продаж за дату ───────────────
+// ── Загрузка списка товаров ─────────────────────────────────
 $prodStmt = $pdo->prepare(<<<SQL
     SELECT p.id, p.name,
         COALESCE((
@@ -97,30 +36,106 @@ SQL);
 $prodStmt->execute([':date' => $selDate]);
 $allProducts = $prodStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Все строки продаж/возвратов за выбранную дату
-$rowStmt = $pdo->prepare(<<<SQL
-    SELECT product_id, is_return, quantity, base_price, unit_price
-    FROM sales
-    WHERE sale_date = :date
+// Продажи за выбранную дату (is_return=0). Каждая операция = отдельная строка.
+$saleStmt = $pdo->prepare(<<<SQL
+    SELECT s.id, s.product_id, s.quantity, s.base_price, s.unit_price,
+           s.discount_amount, s.sold_at, s.payment_method, s.note,
+           p.name AS product_name
+    FROM sales s
+    INNER JOIN products p ON p.id = s.product_id
+    WHERE s.sale_date = :date AND s.is_return = 0
+    ORDER BY COALESCE(s.sold_at, s.sale_date) ASC, s.id ASC
 SQL);
-$rowStmt->execute([':date' => $selDate]);
-$dailyRows = $rowStmt->fetchAll(PDO::FETCH_ASSOC);
+$saleStmt->execute([':date' => $selDate]);
+$dailySales = $saleStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Данные для JS передаём через <script type="application/json"> — см. daily.js.
-// JSON_HEX_* нужны даже для JSON-скрипта (защита от `</script>` в именах).
+// Возвраты за выбранную дату (с подтягиванием исходной продажи)
+$retStmt = $pdo->prepare(<<<SQL
+    SELECT s.id            AS ret_id,
+           s.original_sale_id,
+           s.quantity, s.base_price, s.unit_price,
+           s.sold_at,
+           o.product_id    AS pid,
+           o.sale_date     AS orig_date,
+           o.quantity      AS orig_qty,
+           p.name          AS product_name
+    FROM sales s
+    LEFT JOIN sales o    ON o.id = s.original_sale_id
+    LEFT JOIN products p ON p.id = o.product_id
+    WHERE s.sale_date = :date AND s.is_return = 1
+SQL);
+$retStmt->execute([':date' => $selDate]);
+$dailyReturns = $retStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Возврат можно оформить только текущим днём
+$canReturn = ($selDate === $today);
+
+// Список «возвратопригодных» исходных продаж — только если открыт сегодняшний день
+$returnable = [];
+if ($canReturn) {
+    $sql = <<<SQL
+        SELECT s.id, s.product_id, p.name AS product_name,
+               s.sale_date, s.quantity, s.base_price, s.unit_price,
+               COALESCE((
+                   SELECT SUM(r.quantity) FROM sales r
+                   WHERE r.original_sale_id = s.id AND r.is_return = 1
+               ), 0) AS returned_total
+        FROM sales s
+        INNER JOIN products p ON p.id = s.product_id
+        WHERE s.is_return = 0 AND s.quantity > 0
+        ORDER BY s.sale_date DESC, p.name ASC
+    SQL;
+    foreach ($pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $remaining = (int)$r['quantity'] - (int)$r['returned_total'];
+        if ($remaining <= 0) continue;
+        $returnable[] = [
+            'orig_id'       => (int)$r['id'],
+            'pid'           => (int)$r['product_id'],
+            'name'          => $r['product_name'],
+            'orig_date'     => $r['sale_date'],
+            'orig_qty'      => (int)$r['quantity'],
+            'returned'      => (int)$r['returned_total'],
+            'remaining'     => $remaining,
+            'base_price'    => (float)$r['base_price'],
+            'unit_price'    => (float)$r['unit_price'],
+        ];
+    }
+}
+
 $bootstrap = [
+    'today'    => $today,
+    'selDate'  => $selDate,
     'products' => array_map(fn($p) => [
         'id'    => (int)$p['id'],
         'name'  => $p['name'],
         'price' => (float)$p['price'],
     ], $allProducts),
-    'rows' => array_map(fn($r) => [
+    'sales' => array_map(fn($r) => [
+        'id'         => (int)$r['id'],
         'pid'        => (int)$r['product_id'],
-        'is_return'  => (int)$r['is_return'],
+        'name'       => $r['product_name'],
         'qty'        => (int)$r['quantity'],
         'base_price' => (float)$r['base_price'],
         'unit_price' => (float)$r['unit_price'],
-    ], $dailyRows),
+        'discount'   => (float)$r['discount_amount'],
+        'payment'    => $r['payment_method'] ?: 'cash',
+        'note'       => $r['note'] ?? '',
+        'sold_at'    => $r['sold_at'],
+    ], $dailySales),
+    'returns' => array_map(fn($r) => [
+        'orig_id'    => (int)$r['original_sale_id'],
+        'pid'        => (int)$r['pid'],
+        'name'       => $r['product_name'] ?? ('Товар #' . (int)$r['pid']),
+        'orig_date'  => $r['orig_date'],
+        'orig_qty'   => (int)$r['orig_qty'],
+        'qty'        => (int)$r['quantity'],
+        'base_price' => (float)$r['base_price'],
+        'unit_price' => (float)$r['unit_price'],
+        'sold_at'    => $r['sold_at'],
+    ], $dailyReturns),
+    'returnable' => $returnable,
+    'canReturn'  => $canReturn,
+    'canEdit'    => $canEdit,
 ];
 $bootstrapJson = json_encode(
     $bootstrap,
@@ -131,20 +146,9 @@ $dateDisplay = (new DateTime($selDate))->format('d.m.Y');
 $weekdays    = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
 $wd          = $weekdays[(int)(new DateTime($selDate))->format('w')];
 
-// Возврат можно оформить только текущим днём.
-// На исторических страницах кнопки скрыты — JS-код модалки трогать не нужно.
-$canReturn = ($selDate === $today);
-
-layout_header('Продажи за день');
+layout_header('Продажи за день', wide: true);
 ?>
 <h1 class="page-title">Продажи за день</h1>
-
-<?php if ($msg): ?>
-<div id="flash-data"
-     data-msg="<?= htmlspecialchars($msg, ENT_QUOTES) ?>"
-     data-type="success"
-     hidden></div>
-<?php endif; ?>
 
 <!-- Выбор даты -->
 <div class="card card-pad-sm">
@@ -159,14 +163,29 @@ layout_header('Продажи за день');
     </form>
 </div>
 
+<?php if (!$canEdit): ?>
+<div class="alert alert-warn alert-mb">
+    🔒 Вы просматриваете продажи за прошлый месяц в режиме «только чтение».
+    Редактирование закрытых отчётных периодов доступно только администратору.
+</div>
+<?php endif; ?>
+
 <!-- POS-блок -->
-<div class="card card-flush">
+<div class="card card-flush<?= $canEdit ? '' : ' is-readonly' ?>">
     <div class="pos-header">
         <div class="pos-header-left">
             <span class="pos-title">Продажи за <?= $dateDisplay ?></span>
             <span id="badge-count" class="badge badge-primary" hidden></span>
+            <?php if ($canEdit): ?>
+            <span id="save-status" class="save-status" data-status="idle" hidden></span>
+            <?php endif; ?>
         </div>
+        <?php if ($canEdit): ?>
         <div class="pos-header-actions">
+            <button type="button" class="btn btn-secondary" id="undo-btn" data-action="undo" disabled
+                    title="Отменить последнее добавление/удаление (нет горячей клавиши)">
+                <?= icon('refresh-ccw', 16) ?>Отменить
+            </button>
             <button type="button" class="btn btn-primary" data-action="open-modal" data-mode="0">
                 <?= icon('plus', 16) ?>Добавить продажу
             </button>
@@ -176,13 +195,15 @@ layout_header('Продажи за день');
             </button>
             <?php endif; ?>
         </div>
+        <?php endif; ?>
     </div>
 
     <div id="sales-list" class="sales-list">
         <div id="empty-state" class="empty-state">
             <div class="empty-state-icon"><?= icon('clipboard', 32) ?></div>
             <div class="empty-state-title">Нет продаж за этот день</div>
-            <div class="empty-state-hint">Добавьте продажу или оформите возврат</div>
+            <?php if ($canEdit): ?>
+            <div class="empty-state-hint">Добавьте продажу<?= $canReturn ? ' или оформите возврат' : '' ?></div>
             <div class="empty-state-actions">
                 <button type="button" class="btn btn-primary" data-action="open-modal" data-mode="0">
                     <?= icon('plus', 16) ?>Добавить продажу
@@ -193,29 +214,55 @@ layout_header('Продажи за день');
                 </button>
                 <?php endif; ?>
             </div>
+            <?php endif; ?>
         </div>
         <table id="sales-table" class="sales-table" hidden>
             <thead>
                 <tr>
                     <th class="col-num">#</th>
+                    <th class="col-time">Время</th>
                     <th>Наименование товара</th>
                     <th class="num col-price">Прайс</th>
                     <th class="num col-uprice">Цена продажи</th>
-                    <th class="num col-disc">Скидка/шт.</th>
+                    <th class="num col-disc">Скидка</th>
                     <th class="num col-qty">Кол-во (шт.)</th>
                     <th class="num col-sum">Сумма (руб.)</th>
+                    <th class="col-pay">Оплата</th>
+                    <th class="col-note">Заметка</th>
                     <th class="col-act"></th>
                 </tr>
             </thead>
             <tbody id="sales-tbody"></tbody>
             <tfoot>
-                <tr>
-                    <td colspan="3" class="foot-label">Итого</td>
+                <!-- Продажи -->
+                <tr class="foot-row foot-row--sales">
+                    <td colspan="3" class="foot-label">Продано</td>
+                    <td class="num foot-base" id="foot-base" title="Сумма по прайсу — без скидок">0.00</td>
                     <td></td>
                     <td class="num foot-discount" id="foot-discount">0.00</td>
                     <td class="num" id="foot-qty">0</td>
                     <td class="num" id="foot-sum">0.00</td>
+                    <td colspan="3"></td>
+                </tr>
+                <!-- Возвраты — строка показывается только если есть возвраты -->
+                <tr class="foot-row foot-row--returns" id="foot-returns-row" hidden>
+                    <td colspan="3" class="foot-label">Возвращено</td>
                     <td></td>
+                    <td></td>
+                    <td></td>
+                    <td class="num" id="foot-ret-qty">0</td>
+                    <td class="num foot-neg" id="foot-ret-sum">0.00</td>
+                    <td colspan="3"></td>
+                </tr>
+                <!-- Чистая выручка -->
+                <tr class="foot-row foot-row--net">
+                    <td colspan="3" class="foot-label">Итого</td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td class="num" id="foot-net-qty">0</td>
+                    <td class="num" id="foot-net-sum">0.00</td>
+                    <td colspan="3"></td>
                 </tr>
             </tfoot>
         </table>
@@ -223,34 +270,22 @@ layout_header('Продажи за день');
 
     <div class="pos-footer">
         <div id="totals-bar" class="totals-bar">Нет данных</div>
-        <form method="post" id="save-form">
-            <?= csrf_field() ?>
-            <input type="hidden" name="date" value="<?= htmlspecialchars($selDate) ?>">
-            <div id="hidden-inputs"></div>
-            <button type="submit" class="btn btn-success">
-                <?= icon('save', 16) ?>Сохранить
-            </button>
-        </form>
+        <?php if ($canEdit): ?>
+        <button type="button" class="btn btn-secondary" id="save-now-btn" data-action="flush"
+                title="Сохранить изменения сейчас (изменения и так сохраняются автоматически)">
+            <?= icon('save', 16) ?>Сохранить сейчас
+        </button>
+        <?php endif; ?>
     </div>
 </div>
 
-<!-- Модальное окно -->
+<!-- Модальное окно: продажа -->
 <div id="modal-overlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <div class="modal-box">
         <div class="modal-header">
             <h2 class="modal-title" id="modal-title">Добавить продажу</h2>
             <button type="button" class="modal-close-btn" data-action="close-modal" aria-label="Закрыть (Esc)" title="Закрыть (Esc)">
                 <?= icon('x', 16) ?>
-            </button>
-        </div>
-
-        <!-- Переключатель: Продажа / Возврат (не tablist, а group toggle) -->
-        <div class="mode-switch" role="group" aria-label="Режим операции">
-            <button type="button" class="mode-switch-btn is-active" data-mode="0" data-action="set-mode" aria-pressed="true">
-                <?= icon('plus', 14) ?>Продажа
-            </button>
-            <button type="button" class="mode-switch-btn" data-mode="1" data-action="set-mode" aria-pressed="false">
-                <?= icon('refresh-ccw', 14) ?>Возврат
             </button>
         </div>
 
@@ -267,8 +302,30 @@ layout_header('Продажи за день');
     </div>
 </div>
 
+<!-- Модальное окно: возврат (отдельное, со списком возвратопригодных продаж) -->
+<?php if ($canReturn): ?>
+<div id="return-modal-overlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="return-modal-title">
+    <div class="modal-box modal-box--return">
+        <div class="modal-header">
+            <h2 class="modal-title" id="return-modal-title">Оформить возврат</h2>
+            <button type="button" class="modal-close-btn" data-action="close-return-modal" aria-label="Закрыть (Esc)" title="Закрыть (Esc)">
+                <?= icon('x', 16) ?>
+            </button>
+        </div>
+        <div class="modal-search-wrap">
+            <label for="return-modal-search" class="sr-only">Поиск товара</label>
+            <input type="search" id="return-modal-search" placeholder="Поиск по названию товара…" autocomplete="off">
+            <span id="return-modal-count" class="filter-info"></span>
+        </div>
+        <div class="modal-results" id="return-modal-results"></div>
+        <div class="modal-footer">
+            <span class="filter-info">Выберите продажу, к которой относится возврат. Возврат всегда оформляется текущим днём.</span>
+            <button type="button" class="btn btn-primary" data-action="close-return-modal">Готово</button>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
-<!-- Данные для фронтенд-скрипта. Не выполняется — JSON.parse(). -->
 <script id="daily-bootstrap" type="application/json"><?= $bootstrapJson ?></script>
 <script src="assets/daily.js?v=<?= asset_v('assets/daily.js') ?>" defer></script>
 
