@@ -1110,8 +1110,27 @@ th.col-divider, td.col-divider { border-left: 1px solid var(--border); }
 .report-table tfoot td {
     position: sticky;
     bottom: 0;
-    z-index: 2;
+    z-index: 3;
+    background: var(--bg-muted);
+    box-shadow: 0 -1px 0 var(--border-strong);
 }
+.report-table tfoot td.col-divider { background: #e6edfb; }
+
+/* Сортируемые заголовки */
+.report-table thead th.sortable a {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: inherit;
+    text-decoration: none;
+    font: inherit;
+    text-transform: inherit;
+    letter-spacing: inherit;
+    cursor: pointer;
+}
+.report-table thead th.sortable a:hover { color: var(--clr-primary); }
+.report-table thead th.sortable.is-sorted a { color: var(--clr-primary); }
+.report-table thead th.sort-arrow::after { content: ''; }
 
 /* Share-cell: горизонтальная полоска + процент справа */
 .report-share-cell {
@@ -1630,6 +1649,7 @@ textarea.name-textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--sp-4);
   padding: var(--sp-3) var(--sp-5);
   border-top: 1px solid var(--border);
   flex-shrink: 0;

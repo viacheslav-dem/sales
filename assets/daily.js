@@ -296,6 +296,7 @@
         modalBox.classList.toggle('modal-box--return', currentMode === 1);
         modalTitle.textContent = currentMode === 1 ? 'Оформить возврат' : 'Добавить продажу';
         filterModal(modalSearch.value);
+        updateModalAddedInfo();
     }
 
     function openSalesModal(mode = 0) {
@@ -334,6 +335,15 @@
         }
         const added    = list.filter(p =>  isInCurrentMode(p.id));
         const notAdded = list.filter(p => !isInCurrentMode(p.id));
+        // В режиме возврата товары, проданные в этот же день, поднимаем наверх
+        // (после уже добавленных в возвраты).
+        if (currentMode === 1) {
+            const otherMode = 0;
+            const soldToday  = notAdded.filter(p =>  salesMap[rowKey(p.id, otherMode)]);
+            const restOfList = notAdded.filter(p => !salesMap[rowKey(p.id, otherMode)]);
+            notAdded.length = 0;
+            notAdded.push(...soldToday, ...restOfList);
+        }
         const frag = document.createDocumentFragment();
         [...added, ...notAdded].forEach(p => {
             const div = document.createElement('div');
@@ -389,8 +399,12 @@
     }
 
     function updateModalAddedInfo() {
-        const cnt = Object.keys(salesMap).length;
-        modalAdded.textContent = cnt ? `Позиций: ${cnt}` : '';
+        // Считаем только позиции текущего режима (продажа/возврат)
+        const cnt = Object.values(salesMap)
+            .filter(r => (r.is_return ? 1 : 0) === currentMode)
+            .length;
+        const label = currentMode === 1 ? 'Возвратов' : 'Позиций';
+        modalAdded.textContent = cnt ? `${label}: ${cnt}` : '';
     }
 
     // Delegation на списке модалки

@@ -77,15 +77,16 @@ function layout_header(string $title = '', bool $wide = false): void {
     $mainCls   = 'container' . ($wide ? ' container--wide' : '');
 
     $nav = [
-        'dashboard.php' => ['Дашборд',          'home'],
-        'daily.php'     => ['Продажи за день',  'clipboard'],
-        'report.php'    => ['Отчёт',            'chart'],
-        'history.php'   => ['История',          'history'],
-        'products.php'  => ['Товары',           'package'],
-        'categories.php'=> ['Категории',        'tag'],
-        'users.php'     => ['Пользователи',     'users'],
-        'import.php'    => ['Импорт',           'upload'],
+        'dashboard.php' => ['Дашборд',          'home',      false],
+        'daily.php'     => ['Продажи за день',  'clipboard', false],
+        'report.php'    => ['Отчёт',            'chart',     false],
+        'history.php'   => ['История',          'history',   false],
+        'products.php'  => ['Товары',           'package',   false],
+        'categories.php'=> ['Категории',        'tag',       false],
+        'users.php'     => ['Пользователи',     'users',     true],   // только admin
+        'import.php'    => ['Импорт',           'upload',    true],   // только admin
     ];
+    $userIsAdmin = is_admin();
     ?>
 <!DOCTYPE html>
 <html lang="ru">
@@ -118,7 +119,8 @@ function layout_header(string $title = '', bool $wide = false): void {
         <?= icon('shopping-bag', 22) ?>
         <span class="brand-text"><?= htmlspecialchars(APP_NAME) ?></span>
     </div>
-    <?php foreach ($nav as $file => [$label, $iconName]): ?>
+    <?php foreach ($nav as $file => [$label, $iconName, $adminOnly]): ?>
+        <?php if ($adminOnly && !$userIsAdmin) continue; ?>
     <a href="<?= $file ?>" class="<?= $cur === $file ? 'active' : '' ?>"<?= $cur === $file ? ' aria-current="page"' : '' ?>>
         <?= icon($iconName, 16) ?>
         <span><?= $label ?></span>

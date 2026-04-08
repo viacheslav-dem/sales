@@ -30,16 +30,39 @@ function current_user(): array {
     return [
         'id'       => $_SESSION['user_id'] ?? null,
         'username' => $_SESSION['username'] ?? '',
+        'role'     => $_SESSION['role']     ?? 'manager',
     ];
 }
 
+/** Доступные роли с человеческими названиями. */
+function user_roles(): array {
+    return [
+        'admin'   => 'Администратор',
+        'manager' => 'Менеджер',
+    ];
+}
+
+function is_admin(): bool {
+    return (current_user()['role'] ?? 'manager') === 'admin';
+}
+
+/** Прерывает запрос с 403, если у пользователя нет прав администратора. */
+function require_admin(): void {
+    require_login();
+    if (!is_admin()) {
+        http_response_code(403);
+        exit('403 — Доступ запрещён. Требуются права администратора.');
+    }
+}
+
 function login(string $username, string $password): bool {
-    $stmt = db()->prepare("SELECT id, password_hash FROM users WHERE username = ?");
+    $stmt = db()->prepare("SELECT id, password_hash, role FROM users WHERE username = ?");
     $stmt->execute([$username]);
     $user = $stmt->fetch();
     if ($user && password_verify($password, $user['password_hash'])) {
         $_SESSION['user_id']  = $user['id'];
         $_SESSION['username'] = $username;
+        $_SESSION['role']     = $user['role'] ?? 'manager';
         session_regenerate_id(true);
         return true;
     }

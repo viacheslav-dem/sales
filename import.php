@@ -1,7 +1,7 @@
 <?php
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/layout.php';
-require_login();
+require_admin();
 
 // Подключение библиотеки для работы с Excel
 if (file_exists(__DIR__ . '/vendor/autoload.php')) {

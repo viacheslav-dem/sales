@@ -321,6 +321,18 @@
         document.querySelectorAll('form[data-auto-filter]').forEach(setupAutoFilter);
     }
 
+    // Одиночный select/checkbox с [data-auto-submit-form] — сразу сабмитит
+    // свою ближайшую <form>. Используется для inline-редактирования
+    // (например, смена роли в users.php).
+    function initAutoSubmitFields() {
+        document.addEventListener('change', (e) => {
+            const el = e.target;
+            if (!el || !el.hasAttribute || !el.hasAttribute('data-auto-submit-form')) return;
+            const form = el.closest('form');
+            if (form) form.submit();
+        });
+    }
+
     // ── Сохранение/восстановление позиции скролла при POST ─
     // Сохраняем scrollY перед каждым сабмитом формы и восстанавливаем
     // после загрузки той же страницы. Ключ — pathname, чтобы не путать
@@ -347,6 +359,7 @@
             fd.remove();
         }
         initAutoFilters();
+        initAutoSubmitFields();
     });
 
     // ── Экспорт ─────────────────────────────────────────────

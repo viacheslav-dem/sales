@@ -131,6 +131,10 @@ $dateDisplay = (new DateTime($selDate))->format('d.m.Y');
 $weekdays    = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
 $wd          = $weekdays[(int)(new DateTime($selDate))->format('w')];
 
+// Возврат можно оформить только текущим днём.
+// На исторических страницах кнопки скрыты — JS-код модалки трогать не нужно.
+$canReturn = ($selDate === $today);
+
 layout_header('Продажи за день');
 ?>
 <h1 class="page-title">Продажи за день</h1>
@@ -166,9 +170,11 @@ layout_header('Продажи за день');
             <button type="button" class="btn btn-primary" data-action="open-modal" data-mode="0">
                 <?= icon('plus', 16) ?>Добавить продажу
             </button>
+            <?php if ($canReturn): ?>
             <button type="button" class="btn btn-outline-warning" data-action="open-modal" data-mode="1" title="Оформить возврат товара">
                 <?= icon('refresh-ccw', 16) ?>Оформить возврат
             </button>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -181,9 +187,11 @@ layout_header('Продажи за день');
                 <button type="button" class="btn btn-primary" data-action="open-modal" data-mode="0">
                     <?= icon('plus', 16) ?>Добавить продажу
                 </button>
+                <?php if ($canReturn): ?>
                 <button type="button" class="btn btn-outline-warning" data-action="open-modal" data-mode="1">
                     <?= icon('refresh-ccw', 16) ?>Оформить возврат
                 </button>
+                <?php endif; ?>
             </div>
         </div>
         <table id="sales-table" class="sales-table" hidden>

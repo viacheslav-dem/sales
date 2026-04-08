@@ -46,7 +46,8 @@ function create_full_schema(PDO $pdo): void {
 CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     username      TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL
+    password_hash TEXT NOT NULL,
+    role          TEXT NOT NULL DEFAULT 'manager'
 );
 
 CREATE TABLE IF NOT EXISTS categories (
@@ -156,6 +157,14 @@ function migrate_schema(PDO $pdo): array {
             $pdo->exec("CREATE INDEX IF NOT EXISTS idx_sales_return ON sales(is_return)");
         }
 
+        // ── users.role ────────────────────────────────────────
+        if (!column_exists($pdo, 'users', 'role')) {
+            $pdo->exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'manager'");
+            // Существующий admin-пользователь получает роль admin
+            $pdo->exec("UPDATE users SET role = 'admin' WHERE username = 'admin'");
+            $messages[] = ['ok', 'В <code>users</code> добавлена колонка <code>role</code> (admin / manager).'];
+        }
+
         $pdo->commit();
     } catch (\Throwable $e) {
         $pdo->rollBack();
@@ -192,7 +201,7 @@ if (!$rowsExist && !$confirmed) {
     $exists = $pdo->query("SELECT COUNT(*) FROM users WHERE username='admin'")->fetchColumn();
     if (!$exists) {
         $hash = password_hash('admin123', PASSWORD_DEFAULT);
-        $pdo->prepare("INSERT INTO users (username, password_hash) VALUES ('admin', ?)")->execute([$hash]);
+        $pdo->prepare("INSERT INTO users (username, password_hash, role) VALUES ('admin', ?, 'admin')")->execute([$hash]);
         $messages[] = ['ok', 'Пользователь <strong>admin</strong> создан. Пароль: <strong>admin123</strong> — смените после первого входа!'];
     } else {
         $messages[] = ['info', 'Пользователь admin уже существует.'];
@@ -235,7 +244,7 @@ SQL
     create_full_schema($pdo);
 
     $hash = password_hash('admin123', PASSWORD_DEFAULT);
-    $pdo->prepare("INSERT INTO users (username, password_hash) VALUES ('admin', ?)")->execute([$hash]);
+    $pdo->prepare("INSERT INTO users (username, password_hash, role) VALUES ('admin', ?, 'admin')")->execute([$hash]);
 
     $messages = [
         ['warn', 'Все данные удалены. Схема создана с нуля.'],

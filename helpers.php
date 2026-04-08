@@ -285,12 +285,18 @@ function sales_in_range(PDO $pdo, string $from, string $to, array $opts = []): a
             SQL;
             // Сортировка
             $orderMap = [
-                'name'     => 'p.name ASC',
-                'sum'      => 'net_sum DESC',
-                'qty'      => 'net_qty DESC',
-                'discount' => 'net_discount DESC',
+                'name'          => 'p.name ASC',
+                'name_desc'     => 'p.name DESC',
+                'sum'           => 'net_sum DESC',
+                'sum_desc'      => 'net_sum DESC',
+                'sum_asc'       => 'net_sum ASC',
+                'qty'           => 'net_qty DESC',
+                'qty_desc'      => 'net_qty DESC',
+                'qty_asc'       => 'net_qty ASC',
+                'discount'      => 'ABS(net_discount) DESC',
+                'discount_desc' => 'ABS(net_discount) DESC',
             ];
-            $sql .= ' ORDER BY ' . ($orderMap[$orderBy] ?? 'p.name ASC');
+            $sql .= ' ORDER BY ' . ($orderMap[$orderBy] ?? 'net_sum DESC');
             break;
     }
 

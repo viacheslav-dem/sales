@@ -11,6 +11,7 @@ $preset    = $_GET['preset']   ?? 'this_month';
 $groupBy   = $_GET['group']    ?? 'product';   // product | category | day | weekday
 $catId     = isset($_GET['cat']) && $_GET['cat'] !== '' ? (int)$_GET['cat'] : null;
 $compare   = isset($_GET['compare']) && $_GET['compare'] === '1';
+$sortBy    = $_GET['sort']     ?? 'sum_desc';  // name | sum_desc | sum_asc | qty_desc | qty_asc | discount_desc
 
 $presetsList = period_presets_list();
 
@@ -29,9 +30,27 @@ if ($preset === 'custom') {
 $opts = ['group_by' => $groupBy];
 if ($catId !== null) $opts['category_id'] = $catId;
 
+// Сортировка применяется только к группировке "по товарам"
+if ($groupBy === 'product') {
+    $opts['order_by'] = $sortBy;
+}
+
 $report  = sales_in_range($pdo, $from, $to, $opts);
 $rows    = $report['rows'];
 $totals  = $report['totals'];
+
+// Постсортировка для других группировок (массивами в PHP — данные уже маленькие)
+if ($groupBy !== 'product') {
+    $cmp = null;
+    switch ($sortBy) {
+        case 'sum_asc':       $cmp = fn($a, $b) => $a['net_sum']      <=> $b['net_sum']; break;
+        case 'sum_desc':      $cmp = fn($a, $b) => $b['net_sum']      <=> $a['net_sum']; break;
+        case 'qty_asc':       $cmp = fn($a, $b) => $a['net_qty']      <=> $b['net_qty']; break;
+        case 'qty_desc':      $cmp = fn($a, $b) => $b['net_qty']      <=> $a['net_qty']; break;
+        case 'discount_desc': $cmp = fn($a, $b) => abs((float)$b['net_discount']) <=> abs((float)$a['net_discount']); break;
+    }
+    if ($cmp) usort($rows, $cmp);
+}
 
 // KPI
 $kpi = kpi_for_period($pdo, $from, $to, $catId !== null ? ['category_id' => $catId] : []);
@@ -266,6 +285,32 @@ $miniTrend = function (float $cur, float $prev): string {
         if ($v > $maxRowSum) $maxRowSum = $v;
     }
     $totalSumAbs = max(0.0001, (float)$totals['sum']);
+
+    /** Хелпер: ссылка-сортировка для шапки. Кликает — переключает asc/desc. */
+    $sortLink = function (string $label, string $key) use ($sortBy) {
+        // У каждого ключа есть 2 направления
+        $asc  = $key . '_asc';
+        $desc = $key . '_desc';
+        $isActive = ($sortBy === $asc || $sortBy === $desc);
+        // По умолчанию первый клик — desc (кроме name, там asc)
+        $defaultDir = ($key === 'name') ? $asc : $desc;
+        if (!$isActive) {
+            $next = $defaultDir;
+            $arrow = '';
+        } else {
+            $next  = $sortBy === $desc ? $asc : $desc;
+            $arrow = $sortBy === $desc ? ' ↓' : ' ↑';
+        }
+        $url = htmlspecialchars(buildSortUrl($next));
+        $cls = 'sortable' . ($isActive ? ' is-sorted' : '');
+        return [$cls, '<a href="' . $url . '">' . htmlspecialchars($label) . $arrow . '</a>'];
+    };
+?>
+<?php
+function buildSortUrl(string $sort): string {
+    $q = array_merge($_GET, ['sort' => $sort]);
+    return 'report.php?' . http_build_query($q);
+}
 ?>
 <div class="card card-flush table-scroll report-table-wrap" id="report-table">
 <?php if (empty($rows)): ?>
@@ -273,24 +318,32 @@ $miniTrend = function (float $cur, float $prev): string {
 <?php else: ?>
 <table class="report-table table-cols">
     <thead>
+        <?php
+            [$nameCls, $nameLink] = $sortLink('Наименование товара', 'name');
+            [$qtyCls,  $qtyLink ] = $sortLink('Кол-во', 'qty');
+            [$discCls, $discLink] = $sortLink('Скидка', 'discount');
+            [$sumCls,  $sumLink ] = $sortLink('Выручка', 'sum');
+            [$catCls,  $catLink ] = $sortLink('Категория', 'name');
+            [$dayCls,  $dayLink ] = $sortLink('День недели', 'name');
+        ?>
         <?php if ($groupBy === 'product'): ?>
             <tr>
                 <th style="width:36px">#</th>
-                <th>Наименование товара</th>
+                <th class="<?= $nameCls ?>"><?= $nameLink ?></th>
                 <th style="width:170px">Категория</th>
                 <th class="num" style="width:90px">Прайс</th>
-                <th class="num" style="width:80px">Кол-во</th>
-                <th class="num" style="width:100px">Скидка</th>
-                <th class="num col-divider" style="width:120px">Выручка</th>
+                <th class="num <?= $qtyCls ?>" style="width:80px"><?= $qtyLink ?></th>
+                <th class="num <?= $discCls ?>" style="width:100px"><?= $discLink ?></th>
+                <th class="num col-divider <?= $sumCls ?>" style="width:120px"><?= $sumLink ?></th>
                 <th style="width:60px" class="num">Доля</th>
             </tr>
         <?php elseif ($groupBy === 'category'): ?>
             <tr>
                 <th style="width:36px">#</th>
-                <th>Категория</th>
-                <th class="num" style="width:90px">Кол-во</th>
-                <th class="num" style="width:110px">Скидка</th>
-                <th class="num col-divider" style="width:140px">Выручка</th>
+                <th class="<?= $catCls ?>"><?= $catLink ?></th>
+                <th class="num <?= $qtyCls ?>" style="width:90px"><?= $qtyLink ?></th>
+                <th class="num <?= $discCls ?>" style="width:110px"><?= $discLink ?></th>
+                <th class="num col-divider <?= $sumCls ?>" style="width:140px"><?= $sumLink ?></th>
                 <th style="width:60px" class="num">Доля</th>
             </tr>
         <?php elseif ($groupBy === 'day'): ?>
@@ -298,17 +351,17 @@ $miniTrend = function (float $cur, float $prev): string {
                 <th style="width:36px">#</th>
                 <th>Дата</th>
                 <th style="width:120px">День недели</th>
-                <th class="num" style="width:90px">Кол-во</th>
-                <th class="num" style="width:110px">Скидка</th>
-                <th class="num col-divider" style="width:140px">Выручка</th>
+                <th class="num <?= $qtyCls ?>" style="width:90px"><?= $qtyLink ?></th>
+                <th class="num <?= $discCls ?>" style="width:110px"><?= $discLink ?></th>
+                <th class="num col-divider <?= $sumCls ?>" style="width:140px"><?= $sumLink ?></th>
                 <th style="width:60px" class="num">Доля</th>
             </tr>
         <?php else: // weekday ?>
             <tr>
-                <th>День недели</th>
-                <th class="num" style="width:90px">Кол-во</th>
-                <th class="num" style="width:110px">Скидка</th>
-                <th class="num col-divider" style="width:140px">Выручка</th>
+                <th class="<?= $dayCls ?>"><?= $dayLink ?></th>
+                <th class="num <?= $qtyCls ?>" style="width:90px"><?= $qtyLink ?></th>
+                <th class="num <?= $discCls ?>" style="width:110px"><?= $discLink ?></th>
+                <th class="num col-divider <?= $sumCls ?>" style="width:140px"><?= $sumLink ?></th>
                 <th style="width:60px" class="num">Доля</th>
             </tr>
         <?php endif; ?>
