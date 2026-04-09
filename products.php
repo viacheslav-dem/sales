@@ -43,20 +43,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
             }
 
-            $exists = $pdo->prepare("SELECT id FROM products WHERE name = ?");
-            $exists->execute([$name]);
-            if ($exists->fetch()) {
-                $msg = 'Товар с таким наименованием уже существует.';
+            $pdo->beginTransaction();
+            try {
+                // Проверка дубля внутри транзакции — уменьшает TOCTOU-окно.
+                // Финальную защиту даёт UNIQUE-индекс uniq_products_name на БД:
+                // если параллельный запрос успел вставить такую же строку, INSERT
+                // ниже упадёт с UNIQUE constraint violation, попадёт в catch,
+                // и мы вернём пользователю понятное сообщение о дубле.
+                $exists = $pdo->prepare("SELECT id FROM products WHERE name = ?");
+                $exists->execute([$name]);
+                if ($exists->fetch()) {
+                    $pdo->rollBack();
+                    $msg = 'Товар с таким наименованием уже существует.';
+                    $msgType = 'error';
+                    break;
+                }
+
+                $pdo->prepare("INSERT INTO products (name, category_id) VALUES (?, ?)")
+                    ->execute([$name, $categoryId]);
+                $pid = (int)$pdo->lastInsertId();
+                $pdo->prepare(
+                    "INSERT INTO product_prices (product_id, price, valid_from) VALUES (?, ?, ?)"
+                )->execute([$pid, $price, $validFrom]);
+                $pdo->commit();
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                // Различаем UNIQUE constraint violation (дубль имени, race) от
+                // прочих ошибок — пользователю показываем человекочитаемое.
+                if (str_contains($e->getMessage(), 'UNIQUE') && str_contains($e->getMessage(), 'name')) {
+                    $msg = 'Товар с таким наименованием уже существует.';
+                } else {
+                    $msg = 'Не удалось добавить товар: ' . $e->getMessage();
+                }
                 $msgType = 'error';
                 break;
             }
-
-            $pdo->prepare("INSERT INTO products (name, category_id) VALUES (?, ?)")
-                ->execute([$name, $categoryId]);
-            $pid = (int)$pdo->lastInsertId();
-            $pdo->prepare(
-                "INSERT INTO product_prices (product_id, price, valid_from) VALUES (?, ?, ?)"
-            )->execute([$pid, $price, $validFrom]);
             $msg = 'Товар «' . $name . '» добавлен.';
             break;
         }
@@ -75,29 +96,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 break;
             }
 
-            $dup = $pdo->prepare("SELECT id FROM products WHERE name = ? AND id != ?");
-            $dup->execute([$name, $id]);
-            if ($dup->fetch()) {
-                $msg = 'Другой товар с таким наименованием уже существует.';
-                $msgType = 'error';
-                break;
-            }
+            $pdo->beginTransaction();
+            try {
+                // Защита от переименования в уже существующее имя. Финальный
+                // backstop — UNIQUE-индекс на products.name (см. install.php).
+                $dup = $pdo->prepare("SELECT id FROM products WHERE name = ? AND id != ?");
+                $dup->execute([$name, $id]);
+                if ($dup->fetch()) {
+                    $pdo->rollBack();
+                    $msg = 'Другой товар с таким наименованием уже существует.';
+                    $msgType = 'error';
+                    break;
+                }
 
-            $pdo->prepare("UPDATE products SET name = ?, category_id = ? WHERE id = ?")
-                ->execute([$name, $categoryId, $id]);
+                $pdo->prepare("UPDATE products SET name = ?, category_id = ? WHERE id = ?")
+                    ->execute([$name, $categoryId, $id]);
 
-            if ($newPrice !== '') {
-                $priceVal = (float)str_replace(',', '.', $newPrice);
-                if ($priceVal >= 0) {
-                    $cur = product_price_on($pdo, $id, $today);
-                    if (round($priceVal, 2) !== round($cur, 2)) {
-                        $pdo->prepare(<<<SQL
-                            INSERT INTO product_prices (product_id, price, valid_from)
-                            VALUES (?, ?, ?)
-                            ON CONFLICT(product_id, valid_from) DO UPDATE SET price = excluded.price
-                        SQL)->execute([$id, $priceVal, $validFrom]);
+                if ($newPrice !== '') {
+                    $priceVal = (float)str_replace(',', '.', $newPrice);
+                    if ($priceVal >= 0) {
+                        $cur = product_price_on($pdo, $id, $today);
+                        if (round($priceVal, 2) !== round($cur, 2)) {
+                            $pdo->prepare(<<<SQL
+                                INSERT INTO product_prices (product_id, price, valid_from)
+                                VALUES (?, ?, ?)
+                                ON CONFLICT(product_id, valid_from) DO UPDATE SET price = excluded.price
+                            SQL)->execute([$id, $priceVal, $validFrom]);
+                        }
                     }
                 }
+                $pdo->commit();
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) $pdo->rollBack();
+                if (str_contains($e->getMessage(), 'UNIQUE') && str_contains($e->getMessage(), 'name')) {
+                    $msg = 'Другой товар с таким наименованием уже существует.';
+                } else {
+                    $msg = 'Не удалось обновить товар: ' . $e->getMessage();
+                }
+                $msgType = 'error';
+                break;
             }
             $msg = 'Товар «' . $name . '» обновлён.';
             break;
@@ -128,6 +165,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if (!is_array($ids) || empty($ids)) {
                 $msg = 'Не выбрано ни одного товара.';
+                $msgType = 'error';
+                break;
+            }
+            // Серверный потолок против случайной/намеренной гигантской отправки.
+            // UI ограничивает пользовательский выбор куда раньше, но без серверного
+            // лимита злоумышленник с валидным CSRF может задосить SQLite.
+            $BULK_MAX = 500;
+            if (count($ids) > $BULK_MAX) {
+                $msg = "Слишком много товаров за раз: лимит {$BULK_MAX}.";
                 $msgType = 'error';
                 break;
             }
@@ -203,8 +249,12 @@ $perPage      = 25;
 $where  = [];
 $params = [];
 if ($search !== '') {
-    $where[] = "p.name LIKE ?";
-    $params[] = '%' . $search . '%';
+    // mb_lower — UDF из db.php, корректно опускает кириллицу в нижний регистр
+    // (встроенный SQLite LOWER понимает только ASCII).
+    // ESCAPE — чтобы пользовательские «50%» / «нав_70» не интерпретировались как wildcard.
+    $where[] = "mb_lower(p.name) LIKE mb_lower(?) ESCAPE '\\'";
+    $escaped = strtr($search, ['\\' => '\\\\', '%' => '\\%', '_' => '\\_']);
+    $params[] = '%' . $escaped . '%';
 }
 if ($catFilter !== '') {
     if ($catFilter === '0') {
@@ -231,8 +281,12 @@ $totalPages = max(1, (int)ceil($totalCount / $perPage));
 if ($page > $totalPages) $page = $totalPages;
 $offset = ($page - 1) * $perPage;
 
-// Запрос с подзапросами: текущая и следующая цены
-$queryParams = array_merge($params, [$today, $today, $today, $today, $perPage, $offset]);
+// Запрос с подзапросами: текущая и следующая цены.
+// ВАЖНО: PDO с позиционными «?» подставляет параметры по порядку их появления
+// в тексте SQL. Подзапросы price/price_since/next_price/next_price_from
+// лексически идут РАНЬШЕ WHERE → их даты должны быть в начале массива,
+// иначе search-параметр уедет на место $today и запрос вернёт 0 строк.
+$queryParams = array_merge([$today, $today, $today, $today], $params, [$perPage, $offset]);
 $stmt = $pdo->prepare(<<<SQL
     SELECT p.*,
         c.name AS category_name,

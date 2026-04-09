@@ -246,7 +246,12 @@
         }).then(ok => {
             if (ok) {
                 form.dataset.confirmOk = '1';
-                form.submit();
+                // requestSubmit() запускает событие submit → scrollY/focus сохранятся.
+                if (typeof form.requestSubmit === 'function') {
+                    form.requestSubmit();
+                } else {
+                    form.submit();
+                }
             }
         });
     }, true);
@@ -290,8 +295,19 @@
 
     // ── Auto-submit фильтров (универсальный) ────────────────
     // Любой <form data-auto-filter> подписывается на change/input всех
-    // своих полей и сабмитит форму. Текстовые поля — с debounce 300ms.
+    // своих полей и сабмитит форму. Текстовые поля — с debounce 500мс.
     // select / checkbox / radio / date — мгновенно по change.
+    //
+    // Почему 500мс:
+    //   • Это server-rendered приложение, каждый submit = полный reload —
+    //     реакция дороже, чем у AJAX-instant-search (Algolia рекомендует
+    //     100-300мс для AJAX, а Baymard — 500мс для reload-сценария).
+    //   • Кириллический ввод медленнее английского, средняя пауза между
+    //     символами 250-400мс. 500мс надёжно покрывает паузы между
+    //     нажатиями, но не похоже на «зависло».
+    //   • Enter-фолбэк ниже даёт мгновенный submit нетерпеливым.
+    const FILTER_DEBOUNCE_MS = 500;
+
     function setupAutoFilter(form) {
         if (form.__autoFilterReady) return;
         form.__autoFilterReady = true;
@@ -300,9 +316,23 @@
             // Не сабмитим, если страница уже уходит
             if (form.__submitting) return;
             form.__submitting = true;
-            form.submit();
+            // requestSubmit() vs submit():
+            //   form.submit() — программный submit, который НЕ запускает
+            //     событие 'submit'. Это ломает наши обработчики сохранения
+            //     scrollY/focus, повешенные на это событие.
+            //   form.requestSubmit() — современный API (Chrome 76+, FF 75+,
+            //     Safari 16+), эквивалентен клику submit-кнопки: запускает
+            //     событие, прогоняет валидацию, потом отправляет форму.
+            if (typeof form.requestSubmit === 'function') {
+                form.requestSubmit();
+            } else {
+                // Фолбэк для очень старых браузеров: вручную диспатчим
+                // событие, потом сабмитим напрямую.
+                form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                form.submit();
+            }
         };
-        const submitDebounced = debounce(submit, 300);
+        const submitDebounced = debounce(submit, FILTER_DEBOUNCE_MS);
 
         form.addEventListener('input', (e) => {
             const el = e.target;
@@ -350,20 +380,47 @@
             const el = e.target;
             if (!el || !el.hasAttribute || !el.hasAttribute('data-auto-submit-form')) return;
             const form = el.closest('form');
-            if (form) form.submit();
+            if (!form) return;
+            // requestSubmit() запускает событие submit, необходимое для
+            // сохранения scrollY/focus в обработчике app.js.
+            if (typeof form.requestSubmit === 'function') {
+                form.requestSubmit();
+            } else {
+                form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                form.submit();
+            }
         });
     }
 
-    // ── Сохранение/восстановление позиции скролла при POST ─
-    // Сохраняем scrollY перед каждым сабмитом формы и восстанавливаем
-    // после загрузки той же страницы. Ключ — pathname, чтобы не путать
-    // позиции разных страниц.
+    // ── Сохранение/восстановление позиции скролла и фокуса при POST ─
+    // Сохраняем scrollY и активный input перед каждым сабмитом формы и
+    // восстанавливаем после загрузки той же страницы. Это критично для
+    // auto-filter форм: без восстановления фокуса каретка слетает с
+    // input[type=search] на страницу при каждой нажатой клавише после debounce.
+    // Ключ — pathname, чтобы не путать позиции разных страниц.
     const SCROLL_KEY = 'scrollY:' + location.pathname;
+    const FOCUS_KEY  = 'focus:'   + location.pathname;
     document.addEventListener('submit', () => {
         // Если body заблокирован модалкой — реальный scrollY === 0,
         // нужно использовать сохранённый scrollLockY.
         const y = scrollLockCount > 0 ? scrollLockY : window.scrollY;
         try { sessionStorage.setItem(SCROLL_KEY, String(y)); } catch (_) {}
+
+        // Сохраняем id активного элемента + позицию каретки.
+        // Если у элемента нет id — пропускаем (восстанавливать некуда).
+        const a = document.activeElement;
+        if (a && a.id && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) {
+            const snap = { id: a.id };
+            // selectionStart/End доступны не на всех типах input (например, type=date),
+            // поэтому защищаемся try/catch.
+            try {
+                if (a.selectionStart != null) {
+                    snap.start = a.selectionStart;
+                    snap.end   = a.selectionEnd;
+                }
+            } catch (_) {}
+            try { sessionStorage.setItem(FOCUS_KEY, JSON.stringify(snap)); } catch (_) {}
+        }
     }, true);
     window.addEventListener('DOMContentLoaded', () => {
         try {
@@ -371,6 +428,22 @@
             if (y !== null) {
                 sessionStorage.removeItem(SCROLL_KEY);
                 window.scrollTo(0, parseInt(y, 10) || 0);
+            }
+        } catch (_) {}
+        try {
+            const raw = sessionStorage.getItem(FOCUS_KEY);
+            if (raw) {
+                sessionStorage.removeItem(FOCUS_KEY);
+                const snap = JSON.parse(raw);
+                const el = document.getElementById(snap.id);
+                if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+                    // preventScroll — иначе focus() прокрутит страницу к input
+                    // и затрёт восстановленный scrollY выше.
+                    el.focus({ preventScroll: true });
+                    if (snap.start != null) {
+                        try { el.setSelectionRange(snap.start, snap.end); } catch (_) {}
+                    }
+                }
             }
         } catch (_) {}
         // Flash-сообщения от сервера → toast

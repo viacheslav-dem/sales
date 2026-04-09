@@ -753,6 +753,27 @@ input[type=number] { -moz-appearance: textfield; }
 }
 .alert-info::before { content: 'i'; background: var(--clr-info); color: #fff; font-style: italic; }
 
+/* Режим «только чтение» — нейтральный серо-синий тон, иконка-замок */
+.alert-readonly {
+  background: #f0f4f8;
+  color: #334155;
+  border-color: #cbd5e1;
+  border-left-color: #64748b;
+}
+.alert-readonly::before {
+  content: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='11' width='18' height='11' rx='2'/%3E%3Cpath d='M7 11V7a5 5 0 0 1 10 0v4'/%3E%3C/svg%3E");
+  background: #64748b;
+}
+.alert-readonly strong {
+  color: #1e293b;
+}
+.alert-hint {
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: #64748b;
+  font-weight: 400;
+}
+
 .alert-mb { margin-bottom: var(--sp-4); }
 
 .icon-spin {
@@ -1667,6 +1688,8 @@ textarea.name-textarea {
   box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.08));
   transition: background var(--ease), color var(--ease), border-color var(--ease);
 }
+/* display: inline-flex перебивает [hidden] — возвращаем скрытие */
+.save-status[hidden] { display: none; }
 .save-status[data-status="saving"] {
   background: #dbeafe;
   color: #1d4ed8;

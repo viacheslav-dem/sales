@@ -67,13 +67,15 @@ $wdNames = weekday_names_short();
 $inactiveStmt = $pdo->prepare(<<<SQL
     SELECT p.id, p.name,
         COALESCE(c.name, '— без категории —') AS category_name,
-        (SELECT MAX(s.sale_date) FROM sales s WHERE s.product_id = p.id) AS last_sale
+        (SELECT MAX(s.sale_date) FROM sales s
+         WHERE s.product_id = p.id AND s.is_return = 0) AS last_sale
     FROM products p
     LEFT JOIN categories c ON c.id = p.category_id
     WHERE p.is_active = 1
       AND NOT EXISTS (
         SELECT 1 FROM sales s
-        WHERE s.product_id = p.id AND s.sale_date BETWEEN ? AND ?
+        WHERE s.product_id = p.id AND s.is_return = 0
+          AND s.sale_date BETWEEN ? AND ?
       )
     ORDER BY CASE WHEN last_sale IS NULL THEN 1 ELSE 0 END, last_sale DESC
     LIMIT 8

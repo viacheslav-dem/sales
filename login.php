@@ -141,7 +141,7 @@ body {
 
 input[type=text], input[type=password] {
     width: 100%;
-    padding: 11px 14px 11px 42px;
+    padding: 11px 40px 11px 42px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     font-size: .9375rem;
@@ -150,6 +150,32 @@ input[type=text], input[type=password] {
     background: #fff;
     transition: border-color .15s ease, box-shadow .15s ease;
 }
+
+/* Кнопка «показать/скрыть пароль» */
+.pwd-toggle {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted-2);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color .15s ease, background .15s ease;
+}
+.pwd-toggle:hover { color: var(--primary); background: rgba(37,99,235,.08); }
+.pwd-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.pwd-toggle svg { width: 18px; height: 18px; pointer-events: none; }
+.pwd-toggle__hide { display: none; }
+.pwd-toggle.is-visible .pwd-toggle__show { display: none; }
+.pwd-toggle.is-visible .pwd-toggle__hide { display: block; }
 input[type=text]::placeholder, input[type=password]::placeholder { color: var(--muted-2); }
 input:hover { border-color: var(--border-h); }
 input:focus {
@@ -255,6 +281,15 @@ input:focus {
                         <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
                         <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
                     </svg>
+                    <button type="button" class="pwd-toggle" aria-label="Показать пароль" title="Показать пароль">
+                        <svg class="pwd-toggle__show" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                        </svg>
+                        <svg class="pwd-toggle__hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                            <line x1="1" y1="1" x2="23" y2="23"/>
+                        </svg>
+                    </button>
                 </div>
             </div>
             <button type="submit" class="btn-login">
@@ -277,5 +312,16 @@ input:focus {
     </div>
     <div class="login-footer">© <?= date('Y') ?> · <?= htmlspecialchars(APP_NAME) ?></div>
 </main>
+<script>
+document.querySelector('.pwd-toggle')?.addEventListener('click', function () {
+    const input = document.getElementById('password');
+    const visible = input.type === 'text';
+    input.type = visible ? 'password' : 'text';
+    this.classList.toggle('is-visible', !visible);
+    this.setAttribute('aria-label', visible ? 'Показать пароль' : 'Скрыть пароль');
+    this.title = visible ? 'Показать пароль' : 'Скрыть пароль';
+    input.focus();
+});
+</script>
 </body>
 </html>

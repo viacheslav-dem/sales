@@ -204,14 +204,18 @@
         return `<span class="product-name__main">${escHtml(parts.main)}</span>${meta}${extraHtml || ''}`;
     }
 
-    // Объединённый список для рендера: продажи (по имени, потом по key) + возвраты.
+    // Объединённый список для рендера: продажи (по времени) + возвраты.
     function allItems() {
         const sales = Object.values(salesMap)
             .slice()
             .sort((a, b) => {
-                const c = a.name.localeCompare(b.name, 'ru');
-                if (c !== 0) return c;
-                // Стабильный вторичный порядок: сначала старые (s<id>), потом новые (n<seq>)
+                // По времени продажи (sold_at): сначала ранние, без времени — в конец.
+                // Новые продажи (sold_at === null) всегда внизу, пока сервер
+                // не вернёт реальное время после сохранения.
+                const ta = a.sold_at || '';
+                const tb = b.sold_at || '';
+                if (ta !== tb) return ta < tb ? -1 : 1;
+                // При одинаковом времени — стабильный порядок по ключу
                 return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
             })
             .map(s => ({ kind: 'sale', key: s.key, ref: s }));
@@ -754,13 +758,26 @@
         const kind = tr.dataset.kind;
         if (kind === 'sale') {
             const skey = tr.dataset.skey;
-            if (t.matches('.qty-input'))         setSaleQty(skey, +t.value);
-            else if (t.matches('.uprice-input')) setSaleUprice(skey, +t.value);
+            // Защита от промежуточных NaN: пока пользователь набирает число,
+            // инпут может содержать '-', '' или '.', которые дают NaN при +val.
+            // Такие состояния игнорируем — обработка произойдёт на blur или
+            // когда появится валидное число.
+            if (t.matches('.qty-input')) {
+                const v = +t.value;
+                if (!isNaN(v)) setSaleQty(skey, v);
+            }
+            else if (t.matches('.uprice-input')) {
+                const v = +t.value;
+                if (!isNaN(v)) setSaleUprice(skey, v);
+            }
             else if (t.matches('.disc-input'))   setSaleDiscount(skey, t.value);
             else if (t.matches('.note-input'))   setSaleNote(skey, t.value);
         } else if (kind === 'return') {
             const orig = +tr.dataset.orig;
-            if (t.matches('.qty-input')) setReturnQty(orig, +t.value);
+            if (t.matches('.qty-input')) {
+                const v = +t.value;
+                if (!isNaN(v)) setReturnQty(orig, v);
+            }
         }
     });
 
@@ -966,8 +983,6 @@
             if (retOverlay) closeModal(retOverlay);
         } else if (action === 'undo') {
             performUndo();
-        } else if (action === 'flush') {
-            flushQueue({ manual: true });
         }
     });
 
@@ -1217,6 +1232,25 @@
                         // Догоняем: помечаем серверный id на удаление,
                         // следующий flushQueue отправит DELETE.
                         DELETED_IDS.add(newId);
+                    }
+                });
+            }
+            // Сервер присваивает sold_at при INSERT возврата — подхватываем,
+            // чтобы в строке вместо прочерка появилось реальное время.
+            if (data.ret_times) {
+                Object.entries(data.ret_times).forEach(([origId, soldAt]) => {
+                    origId = Number(origId);
+                    const r = returnsMap[origId];
+                    if (r && soldAt) {
+                        r.sold_at = soldAt;
+                        const tr = tbody.querySelector(`tr[data-key="${cssEsc('r:' + origId)}"]`);
+                        const cell = tr && tr.querySelector('.col-time');
+                        if (cell) {
+                            const t = fmtTime(soldAt);
+                            cell.innerHTML = t
+                                ? `<span class="row-time">${t}</span>`
+                                : '<span class="text-faint">—</span>';
+                        }
                     }
                 });
             }

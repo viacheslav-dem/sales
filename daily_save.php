@@ -46,27 +46,55 @@ if (!is_string($sentToken) || !hash_equals($_SESSION['csrf'] ?? '', $sentToken))
     json_out(['ok' => false, 'error' => 'CSRF token mismatch'], 419);
 }
 
-// Тело запроса
-$raw = file_get_contents('php://input');
+// Тело запроса. Лимит сырого размера — защита от DoS через гигантский payload.
+// 256 KB с запасом покрывает любой реальный сценарий: даже сотня позиций
+// с заметками по 500 символов укладывается в десятки KB.
+$RAW_MAX_BYTES = 256 * 1024;
+$raw = file_get_contents('php://input', false, null, 0, $RAW_MAX_BYTES + 1);
+if ($raw === false || strlen($raw) > $RAW_MAX_BYTES) {
+    json_out(['ok' => false, 'error' => 'Payload too large'], 413);
+}
 $payload = json_decode($raw, true);
 if (!is_array($payload)) {
     json_out(['ok' => false, 'error' => 'Invalid JSON payload'], 400);
 }
 
+// Сами массивы операций тоже ограничиваем, чтобы prepared loops
+// не растягивали транзакцию на минуты.
+$OPS_MAX = 500;
+if ((isset($payload['ops'])     && is_array($payload['ops'])     && count($payload['ops'])     > $OPS_MAX)
+ || (isset($payload['deleted']) && is_array($payload['deleted']) && count($payload['deleted']) > $OPS_MAX)
+ || (isset($payload['returns']) && is_array($payload['returns']) && count($payload['returns']) > $OPS_MAX)) {
+    json_out(['ok' => false, 'error' => 'Too many operations in one batch'], 413);
+}
+
 $pdo   = db();
 $today = date('Y-m-d');
 
-$postDate = $payload['date'] ?? $today;
-if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $postDate)) $postDate = $today;
+$postDate = $payload['date'] ?? '';
+// Жёсткая валидация: регэксп + checkdate(). Тихий fallback к $today
+// здесь опасен — клиент с битой датой молча писал бы в текущий день
+// и перезаписывал чужие продажи. Лучше отдать 400 и пусть клиент
+// поймёт, что у него баг.
+if (!is_string($postDate) || !valid_date($postDate)) {
+    json_out(['ok' => false, 'error' => 'Invalid date'], 400);
+}
+// Запрещаем будущие даты на сервере. Клиентский input[type=date]
+// имеет max=today, но прямой POST обходит это ограничение.
+if ($postDate > $today) {
+    json_out(['ok' => false, 'error' => 'Future dates are not allowed'], 400);
+}
 
-// Защита: продажи прошлых месяцев правит только администратор
-if (is_past_month($postDate) && !is_admin()) {
-    json_out(['ok' => false, 'error' => 'Редактирование закрытых периодов доступно только администратору'], 403);
+// Менеджер может сохранять продажи только за текущий день.
+// Администратор — за любой день (будущие уже отсечены выше).
+if ($postDate !== $today && !is_admin()) {
+    json_out(['ok' => false, 'error' => 'Редактирование прошлых дней доступно только администратору'], 403);
 }
 
 $ALLOWED_PAYMENTS = ['cash', 'card', 'other'];
 $idMap = [];
-$timeMap = []; // localKey → sold_at, чтобы клиент сразу проставил время в строке
+$timeMap = [];      // localKey → sold_at для новых продаж
+$retTimeMap = [];   // origId → sold_at для новых возвратов
 
 try {
     // Каталожные цены на дату — для НОВЫХ строк продаж
@@ -104,18 +132,36 @@ try {
     $deleteSaleById = $pdo->prepare(
         "DELETE FROM sales WHERE id = ? AND sale_date = ? AND is_return = 0"
     );
+    // Удаление возвратов привязано к (orig_id, sale_date) исходной продажи —
+    // иначе DELETE сносил бы все возвраты, даже если сама продажа была из
+    // другого дня и в текущем запросе её удалить не получится.
     $deleteReturnsByOrig = $pdo->prepare(
         "DELETE FROM sales WHERE original_sale_id = ? AND is_return = 1"
+    );
+    // Проверка, что продажа действительно принадлежит запрошенному дню.
+    // Без этой проверки $deleteReturnsByOrig мог бы удалить чужие возвраты
+    // (см. комментарий ниже).
+    $checkSaleDate = $pdo->prepare(
+        "SELECT 1 FROM sales WHERE id = ? AND sale_date = ? AND is_return = 0"
     );
 
     $pdo->beginTransaction();
 
     // 0) Удаления продаж по списку id ---------------------------
+    //
+    // Безопасность: проверяем, что каждый id принадлежит $postDate.
+    // Иначе атакующий с валидным CSRF мог бы прислать
+    // {date: 'today', deleted: [<id из старого дня>]} и снести
+    // все возвраты по этой старой продаже (deleteReturnsByOrig
+    // не имеет фильтра по дате — он не может его иметь, потому что
+    // возвраты лежат на дате возврата, а не дате исходной продажи).
     $deletedIds = $payload['deleted'] ?? [];
     if (is_array($deletedIds)) {
         foreach ($deletedIds as $rawId) {
             $id = (int)$rawId;
             if ($id <= 0) continue;
+            $checkSaleDate->execute([$id, $postDate]);
+            if (!$checkSaleDate->fetchColumn()) continue; // не наша продажа — игнор
             $deleteReturnsByOrig->execute([$id]);
             $deleteSaleById->execute([$id, $postDate]);
         }
@@ -141,9 +187,13 @@ try {
             if (!in_array($payment, $ALLOWED_PAYMENTS, true)) $payment = 'cash';
 
             $note = trim((string)($op['note'] ?? ''));
-            if ($note === '') $note = null;
-            if ($note !== null && mb_strlen($note) > 500) {
-                $note = mb_substr($note, 0, 500);
+            if ($note === '') {
+                $note = null;
+            } elseif (mb_strlen($note) > 500) {
+                // Раньше тихо обрезали — пользователь не понимал, почему
+                // часть заметки исчезла. Теперь отвергаем явно.
+                $pdo->rollBack();
+                json_out(['ok' => false, 'error' => 'Заметка длиннее 500 символов'], 400);
             }
 
             $opId = isset($op['id']) && $op['id'] !== null && $op['id'] !== ''
@@ -235,17 +285,19 @@ try {
                 $updateRet->execute([$qty, $bp, $up, $amount, $disc, $existingId]);
             } else {
                 $origPayment = $orig['payment_method'] ?: 'cash';
+                $retSoldAt = date('Y-m-d H:i:s');
                 $insertRet->execute([
                     (int)$orig['product_id'], $today,
                     $qty, $bp, $up, $amount, $disc, $origId,
-                    date('Y-m-d H:i:s'), $origPayment,
+                    $retSoldAt, $origPayment,
                 ]);
+                $retTimeMap[$origId] = $retSoldAt;
             }
         }
     }
 
     $pdo->commit();
-    json_out(['ok' => true, 'id_map' => $idMap, 'times' => $timeMap]);
+    json_out(['ok' => true, 'id_map' => $idMap, 'times' => $timeMap, 'ret_times' => $retTimeMap]);
 } catch (\Throwable $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     json_out(['ok' => false, 'error' => $e->getMessage()], 500);

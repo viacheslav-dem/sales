@@ -8,13 +8,22 @@ $pdo   = db();
 $today = date('Y-m-d');
 
 $selDate = $_GET['date'] ?? $today;
-if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $selDate)) $selDate = $today;
+// valid_date() — формат + checkdate(). Без него «2026-02-30» проходил
+// regex, безопасно вырождался в SQL (0 строк), но потом падал на
+// new DateTime($selDate) → 500 на странице.
+if (!valid_date($selDate)) $selDate = $today;
+// Запрещаем будущие даты на сервере. UI ограничивает выбор через
+// max=today на input[type=date], но это только клиентская подсказка —
+// через прямой URL можно обойти. Серверный clamp — единственная защита.
+if ($selDate > $today) $selDate = $today;
 
 // Право на редактирование текущего экрана: продажи прошлых месяцев правит
 // только администратор. Возврат всегда оформляется текущим днём, поэтому
 // блокировка возвратов отдельно не нужна — кнопка возврата на исторических
 // страницах и так не появляется ($canReturn ниже).
-$canEdit = is_admin() || !is_past_month($selDate);
+// Менеджер может редактировать только текущий день.
+// Администратор — любой день (кроме будущих, они отсечены выше).
+$canEdit = is_admin() || ($selDate === $today);
 
 // Сохранение здесь не обрабатывается — экран работает в режиме autosave.
 // Все мутации улетают на daily_save.php (JSON-endpoint) асинхронно с дебаунсом.
@@ -70,9 +79,19 @@ $dailyReturns = $retStmt->fetchAll(PDO::FETCH_ASSOC);
 // Возврат можно оформить только текущим днём
 $canReturn = ($selDate === $today);
 
-// Список «возвратопригодных» исходных продаж — только если открыт сегодняшний день
+// Список «возвратопригодных» исходных продаж — только если открыт сегодняшний день.
+//
+// Ограничиваем горизонтом в 14 дней (стандартный срок возврата непродовольственных
+// товаров надлежащего качества по закону о защите прав потребителей):
+//   • Возврат за пределами этого срока — исключение, оформляется админом руками.
+//   • Без лимита SELECT тащил всю sales-таблицу за всю историю магазина,
+//     PHP сериализовал её в JSON-bootstrap, JS отрисовывал в модалке —
+//     через год работы это становилось сотни KB JSON и неюзабельным UI.
+//   • Если бизнес-правила потребуют другого окна — поменяйте константу.
+$RETURN_HORIZON_DAYS = 14;
 $returnable = [];
 if ($canReturn) {
+    $horizonFrom = date('Y-m-d', strtotime("-{$RETURN_HORIZON_DAYS} days", strtotime($today)));
     $sql = <<<SQL
         SELECT s.id, s.product_id, p.name AS product_name,
                s.sale_date, s.quantity, s.base_price, s.unit_price,
@@ -83,9 +102,12 @@ if ($canReturn) {
         FROM sales s
         INNER JOIN products p ON p.id = s.product_id
         WHERE s.is_return = 0 AND s.quantity > 0
+          AND s.sale_date >= :horizon
         ORDER BY s.sale_date DESC, p.name ASC
     SQL;
-    foreach ($pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC) as $r) {
+    $retStmt2 = $pdo->prepare($sql);
+    $retStmt2->execute([':horizon' => $horizonFrom]);
+    foreach ($retStmt2->fetchAll(PDO::FETCH_ASSOC) as $r) {
         $remaining = (int)$r['quantity'] - (int)$r['returned_total'];
         if ($remaining <= 0) continue;
         $returnable[] = [
@@ -141,6 +163,12 @@ $bootstrapJson = json_encode(
     $bootstrap,
     JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
 );
+if ($bootstrapJson === false) {
+    // Битый UTF-8 в одном из имён товаров/заметок. Лучше упасть громко
+    // в логах с понятным сообщением, чем отдать пустой <script>-тег и
+    // получить молчаливый JS-краш «Unexpected end of JSON input».
+    throw new \RuntimeException('daily.php: json_encode failed: ' . json_last_error_msg());
+}
 
 $dateDisplay = (new DateTime($selDate))->format('d.m.Y');
 $weekdays    = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
@@ -164,9 +192,11 @@ layout_header('Продажи за день', wide: true);
 </div>
 
 <?php if (!$canEdit): ?>
-<div class="alert alert-warn alert-mb">
-    🔒 Вы просматриваете продажи за прошлый месяц в режиме «только чтение».
-    Редактирование закрытых отчётных периодов доступно только администратору.
+<div class="alert alert-readonly alert-mb">
+    <div>
+        <strong>Только чтение</strong> — продажи за <?= $dateDisplay ?>
+        <div class="alert-hint">Редактирование прошлых дней доступно только администратору</div>
+    </div>
 </div>
 <?php endif; ?>
 
@@ -270,12 +300,6 @@ layout_header('Продажи за день', wide: true);
 
     <div class="pos-footer">
         <div id="totals-bar" class="totals-bar">Нет данных</div>
-        <?php if ($canEdit): ?>
-        <button type="button" class="btn btn-secondary" id="save-now-btn" data-action="flush"
-                title="Сохранить изменения сейчас (изменения и так сохраняются автоматически)">
-            <?= icon('save', 16) ?>Сохранить сейчас
-        </button>
-        <?php endif; ?>
     </div>
 </div>
 

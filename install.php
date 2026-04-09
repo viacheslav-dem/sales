@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS categories (
 
 CREATE TABLE IF NOT EXISTS products (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    name        TEXT NOT NULL,
+    name        TEXT NOT NULL UNIQUE,
     is_active   INTEGER NOT NULL DEFAULT 1,
     category_id INTEGER NULL,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
@@ -229,6 +229,28 @@ function migrate_schema(PDO $pdo): array {
         if ($hasUniqIndex) {
             $pdo->exec("DROP INDEX uniq_sales_normal");
             $messages[] = ['ok', 'Снят уникальный индекс <code>uniq_sales_normal</code>: теперь можно вбить несколько продаж одного товара за день по разным ценам.'];
+        }
+
+        // ── products.name: UNIQUE-индекс ──────────────────────
+        // Серверная гарантия от дублей наименований. Дополняет проверку
+        // в коде add/edit (которая страдает от TOCTOU race без индекса).
+        // Если в БД уже есть дубли — CREATE UNIQUE INDEX упадёт; в этом
+        // случае пропускаем шаг и сообщаем администратору, чтобы он
+        // объединил дубли вручную.
+        $hasNameUniq = (bool)$pdo->query(
+            "SELECT 1 FROM sqlite_master WHERE type='index' AND name='uniq_products_name'"
+        )->fetchColumn();
+        if (!$hasNameUniq) {
+            $dupCount = (int)$pdo->query(
+                "SELECT COUNT(*) FROM (SELECT name FROM products GROUP BY name HAVING COUNT(*) > 1)"
+            )->fetchColumn();
+            if ($dupCount > 0) {
+                $messages[] = ['warn',
+                    "Не удалось создать уникальный индекс на <code>products.name</code>: найдено {$dupCount} дублирующихся наименований. Объедините дубли вручную и перезапустите миграцию."];
+            } else {
+                $pdo->exec("CREATE UNIQUE INDEX uniq_products_name ON products(name)");
+                $messages[] = ['ok', 'Создан уникальный индекс <code>uniq_products_name</code>: дубли наименований теперь невозможны.'];
+            }
         }
 
         // ── users.role ────────────────────────────────────────
