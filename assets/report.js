@@ -1,26 +1,22 @@
 /**
- * Экран «Отчёт»: после смены группировки/категории — скроллим к таблице.
- * Сам auto-submit формы выполняется глобально через [data-auto-filter] в app.js.
+ * Экран «Отчёт»: после сабмита формы фильтров — скроллим к таблице.
  *
- *  - data-scroll-table на поле — после сабмита формы прокручиваем страницу
- *    к #report-table. Флаг кладётся в sessionStorage до submit, считывается
- *    на следующей загрузке.
+ * Флаг кладётся в sessionStorage до submit, считывается на следующей загрузке.
  */
 (() => {
     'use strict';
 
     const SCROLL_FLAG = 'report:scroll-to-table';
 
-    document.querySelectorAll('[data-scroll-table]').forEach((el) => {
-        el.addEventListener('change', () => {
+    const form = document.getElementById('report-form');
+    if (form) {
+        form.addEventListener('submit', () => {
             try {
                 sessionStorage.setItem(SCROLL_FLAG, '1');
-                // Подавляем глобальное восстановление scrollY из app.js,
-                // чтобы не было двойного скролла.
                 sessionStorage.removeItem('scrollY:' + location.pathname);
             } catch (_) {}
         });
-    });
+    }
 
     window.addEventListener('DOMContentLoaded', () => {
         try {

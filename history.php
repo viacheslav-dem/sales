@@ -213,6 +213,7 @@ layout_header('История продаж', true, 'history');
                         'to'   => date('Y-m-d'),
                     ]);
                 ?>
+                <button type="submit" class="btn btn-primary"><?= icon('check', 16) ?>Применить</button>
                 <a href="<?= htmlspecialchars($resetUrl) ?>" class="btn btn-secondary"><?= icon('x', 16) ?>Сбросить</a>
                 <?php if (!empty($rows)): ?>
                 <a href="export.php?from=<?= $from ?>&to=<?= $to ?>&group=product<?= $catId !== null ? '&cat=' . $catId : '' ?>"

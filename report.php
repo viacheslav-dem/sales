@@ -110,12 +110,12 @@ layout_header('Отчёт по продажам', true, 'report');
 
 <!-- Панель фильтров -->
 <div class="card card-pad-sm report-filters">
-    <form method="get" id="report-form" data-auto-filter>
+    <form method="get" id="report-form">
         <div class="report-row">
             <div class="report-presets">
                 <?php foreach ($presetsList as $key => $label): ?>
                     <label class="preset-chip <?= $preset === $key ? 'active' : '' ?>">
-                        <input type="radio" name="preset" value="<?= $key ?>" <?= $preset === $key ? 'checked' : '' ?> data-auto-submit>
+                        <input type="radio" name="preset" value="<?= $key ?>" <?= $preset === $key ? 'checked' : '' ?> data-auto-submit-form>
                         <?= htmlspecialchars($label) ?>
                     </label>
                 <?php endforeach; ?>
@@ -126,17 +126,17 @@ layout_header('Отчёт по продажам', true, 'report');
             <?php if ($preset === 'custom'): ?>
                 <div class="filter-item">
                     <label for="rep-from">От</label>
-                    <input type="date" id="rep-from" name="from" value="<?= htmlspecialchars($from) ?>" data-auto-submit>
+                    <input type="date" id="rep-from" name="from" value="<?= htmlspecialchars($from) ?>">
                 </div>
                 <div class="filter-item">
                     <label for="rep-to">До</label>
-                    <input type="date" id="rep-to" name="to" value="<?= htmlspecialchars($to) ?>" data-auto-submit>
+                    <input type="date" id="rep-to" name="to" value="<?= htmlspecialchars($to) ?>">
                 </div>
             <?php endif; ?>
 
             <div class="filter-item">
                 <label for="rep-group">Группировка</label>
-                <select id="rep-group" name="group" data-auto-submit data-scroll-table>
+                <select id="rep-group" name="group">
                     <?php foreach ($groupNames as $g => $name): ?>
                         <option value="<?= $g ?>" <?= $groupBy === $g ? 'selected' : '' ?>><?= $name ?></option>
                     <?php endforeach; ?>
@@ -145,7 +145,7 @@ layout_header('Отчёт по продажам', true, 'report');
 
             <div class="filter-item">
                 <label for="rep-cat">Категория</label>
-                <select id="rep-cat" name="cat" data-auto-submit data-scroll-table>
+                <select id="rep-cat" name="cat">
                     <option value="">Все</option>
                     <?php foreach ($allCategories as $c): ?>
                         <option value="<?= $c['id'] ?>" <?= (int)$c['id'] === $catId ? 'selected' : '' ?>>
@@ -158,9 +158,14 @@ layout_header('Отчёт по продажам', true, 'report');
             <div class="filter-item">
                 <label>&nbsp;</label>
                 <label class="report-compare-toggle">
-                    <input type="checkbox" name="compare" value="1" <?= $compare ? 'checked' : '' ?> data-auto-submit>
+                    <input type="checkbox" name="compare" value="1" <?= $compare ? 'checked' : '' ?>>
                     Сравнить с прошлым годом
                 </label>
+            </div>
+
+            <div class="filter-item">
+                <label>&nbsp;</label>
+                <button type="submit" class="btn btn-primary"><?= icon('check', 16) ?>Применить</button>
             </div>
 
             <?php if (!empty($rows)): ?>

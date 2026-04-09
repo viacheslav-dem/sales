@@ -98,12 +98,12 @@
   --text-inverse:   #ffffff;
 
   /* === Nav === */
-  --nav-bg:          #0f172a;
+  --nav-bg:          #1e293b;
   --nav-bg-2:        #1e293b;
   --nav-text:        #cbd5e1;
-  --nav-text-active: #ffffff;
-  --nav-active:      #3b82f6;
-  --nav-hover:       rgba(255,255,255,.06);
+  --nav-text-active: #f1f5f9;
+  --nav-active:      #4ade80;
+  --nav-hover:       rgba(255,255,255,.07);
 
   /* === Spacing scale (4px base) === */
   --sp-1:  4px;
@@ -250,40 +250,48 @@ svg { flex-shrink: 0; }
    NAVIGATION
    ========================================================= */
 nav {
-  background: linear-gradient(180deg, var(--nav-bg) 0%, var(--nav-bg-2) 100%);
+  background: var(--nav-bg);
   display: flex;
   align-items: stretch;
-  padding: 0 var(--sp-6);
-  height: 60px;
-  box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 4px 12px rgba(15, 23, 42, .15);
+  justify-content: center;
+  height: 56px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, .15);
   position: sticky;
   top: 0;
   z-index: var(--z-nav);
-  border-bottom: 1px solid rgba(255,255,255,.05);
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+nav > .nav-inner {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 var(--sp-6);
 }
 
 nav .brand {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
+  gap: var(--sp-2);
   font-weight: 700;
   font-size: var(--text-md);
   color: var(--nav-text-active);
   padding-right: var(--sp-5);
-  margin-right: var(--sp-4);
+  margin-right: var(--sp-3);
   border-right: 1px solid rgba(255,255,255,.08);
   letter-spacing: -.015em;
   white-space: nowrap;
   text-decoration: none;
   transition: opacity var(--ease);
 }
-nav .brand:hover { opacity: .85; text-decoration: none; }
+nav .brand:hover { opacity: .7; text-decoration: none; }
 nav .brand-logo {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
   object-fit: cover;
-  box-shadow: 0 1px 2px rgba(0,0,0,.25), 0 0 0 1px rgba(255,255,255,.06);
+  box-shadow: 0 1px 3px rgba(0,0,0,.3);
   flex-shrink: 0;
   display: block;
 }
@@ -293,7 +301,7 @@ nav .brand-logo {
 nav .nav-divider {
   width: 1px;
   align-self: center;
-  height: 22px;
+  height: 20px;
   background: rgba(255,255,255,.1);
   margin: 0 var(--sp-2);
   flex-shrink: 0;
@@ -302,8 +310,8 @@ nav .nav-divider {
 nav a {
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-2);
-  padding: 0 var(--sp-4);
+  gap: 6px;
+  padding: 0 var(--sp-3);
   color: var(--nav-text);
   font-size: var(--text-sm);
   font-weight: 500;
@@ -315,25 +323,26 @@ nav a {
   position: relative;
 }
 nav a svg {
-  width: 16px;
-  height: 16px;
-  opacity: .85;
+  width: 15px;
+  height: 15px;
+  opacity: .6;
 }
 nav a:hover {
   color: var(--nav-text-active);
   background: var(--nav-hover);
   text-decoration: none;
+  border-radius: 6px 6px 0 0;
 }
 nav a:hover svg { opacity: 1; }
 nav a.active {
-  color: var(--nav-text-active);
-  border-bottom-color: var(--clr-primary-500);
-  background: linear-gradient(180deg, transparent 0%, rgba(59,130,246,.12) 100%);
+  color: var(--nav-active);
+  border-bottom-color: var(--nav-active);
+  font-weight: 600;
 }
-nav a.active svg { color: var(--clr-primary-500); opacity: 1; }
+nav a.active svg { color: var(--nav-active); opacity: .9; }
 nav a:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 2px var(--clr-primary-500);
+  box-shadow: inset 0 0 0 2px var(--nav-active);
   border-radius: 2px;
 }
 
@@ -343,7 +352,7 @@ nav .spacer { flex: 1; }
 nav .user {
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: 6px;
   color: var(--nav-text);
   font-size: var(--text-sm);
   padding: 0 var(--sp-3);
@@ -356,12 +365,11 @@ nav .user-avatar {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--clr-primary-500) 0%, #6366f1 100%);
+  background: #16a34a;
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   flex-shrink: 0;
-  box-shadow: 0 0 0 1px rgba(255,255,255,.08);
 }
 nav .user-name {
   color: var(--nav-text-active);
@@ -371,8 +379,8 @@ nav .user-name {
 .nav-logout {
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-2);
-  padding: 0 var(--sp-4);
+  gap: 6px;
+  padding: 0 var(--sp-3);
   color: var(--nav-text);
   font-size: var(--text-sm);
   font-weight: 500;
@@ -380,11 +388,12 @@ nav .user-name {
   transition: color var(--ease), background var(--ease), border-color var(--ease);
   text-decoration: none;
 }
-.nav-logout svg { width: 16px; height: 16px; opacity: .85; }
+.nav-logout svg { width: 15px; height: 15px; opacity: .6; }
 .nav-logout:hover {
   color: #fca5a5;
   background: rgba(220, 38, 38, .12);
   text-decoration: none;
+  border-radius: 6px 6px 0 0;
 }
 .nav-logout:hover svg { opacity: 1; }
 .nav-logout:focus-visible {
@@ -415,16 +424,24 @@ nav .user-name {
 @media (max-width: 860px) {
   .nav-burger { display: flex; }
 
-  nav { flex-wrap: wrap; height: auto; min-height: 52px; padding: 0 var(--sp-4); }
+  nav { height: auto; min-height: 52px; }
+  nav > .nav-inner { flex-wrap: wrap; padding: 0 var(--sp-4); position: relative; }
   nav .brand { padding-right: var(--sp-3); margin-right: auto; border-right: none; }
   nav .brand-text { display: none; }
 
   .nav-links {
     display: none;
     flex-direction: column;
-    width: 100%;
-    order: 10;
-    padding-bottom: var(--sp-3);
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--nav-bg);
+    padding: var(--sp-2) var(--sp-4) var(--sp-4);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, .25);
+    border-bottom-left-radius: var(--radius-lg, 12px);
+    border-bottom-right-radius: var(--radius-lg, 12px);
+    z-index: 100;
   }
   .nav-links.nav-open { display: flex; }
 
@@ -434,7 +451,7 @@ nav .user-name {
     border-bottom: none;
     border-radius: var(--radius);
   }
-  .nav-links a.active { background: rgba(59,130,246,.15); }
+  .nav-links a.active { background: rgba(74,222,128,.1); color: var(--nav-active); }
   .nav-links .spacer { display: none; }
   .nav-links .user {
     padding: var(--sp-2) var(--sp-3);
@@ -2550,6 +2567,7 @@ a.summary-item:focus-visible {
    ========================================================= */
 @media (max-width: 1024px) {
   .container { padding: var(--sp-5) var(--sp-4); }
+  nav > .nav-inner { padding: 0 var(--sp-4); }
   .summary-box { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
   .dashboard-grid { grid-template-columns: 1fr; }
   /* Топ-товары: убираем отдельную колонку qty, чтобы строка не ломалась */
@@ -2560,43 +2578,14 @@ a.summary-item:focus-visible {
 }
 
 @media (max-width: 768px) {
-  /* iOS Safari зумит viewport, если font-size input < 16px.
-     Принудительно делаем все интерактивные поля 16px на мобильном. */
-  input[type=text],
-  input[type=number],
-  input[type=date],
-  input[type=password],
-  input[type=email],
-  input[type=search],
-  select,
-  textarea {
-    font-size: 16px;
-  }
-
-  nav {
-    padding: 0 var(--sp-3);
-    height: 56px;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  nav::-webkit-scrollbar { display: none; }
+  nav > .nav-inner { padding: 0 var(--sp-3); }
   nav .brand {
     font-size: var(--text-sm);
     padding-right: var(--sp-3);
     margin-right: var(--sp-2);
     gap: var(--sp-2);
   }
-  nav .brand .brand-text { display: none; }
   nav .brand-logo { width: 28px; height: 28px; }
-  nav .nav-divider { display: none; }
-  nav a {
-    padding: 0 var(--sp-3);
-    font-size: var(--text-xs);
-  }
-  nav a span { display: none; }
-  nav .user { padding: 0 var(--sp-2); }
-  nav .user-name { display: none; }
-  .nav-logout span { display: none; }
 
   .container { padding: var(--sp-4) var(--sp-3); }
   .page-title { font-size: var(--text-xl); margin-bottom: var(--sp-4); }
@@ -2631,6 +2620,23 @@ a.summary-item:focus-visible {
   .modal-box { max-height: 92vh; }
   .modal-row { gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); }
   .modal-header, .modal-search-wrap, .modal-footer { padding-left: var(--sp-4); padding-right: var(--sp-4); }
+
+  /* На мобильном горизонтальный скролл таблиц ломает sticky —
+     отключаем фиксацию заголовка/итогов и ограничение высоты */
+  .report-table-wrap,
+  .history-table-wrap {
+    max-height: none;
+    overflow-y: visible;
+    overflow-x: auto;
+  }
+  .report-table thead th,
+  .history-table thead th {
+    position: static;
+  }
+  .report-table tfoot td {
+    position: static;
+    box-shadow: none;
+  }
 }
 
 @media (max-width: 480px) {

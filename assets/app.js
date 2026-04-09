@@ -349,18 +349,20 @@
             if (!el || el.disabled) return;
             const tag = el.tagName;
             const type = (el.type || '').toLowerCase();
-            // select / checkbox / radio / date — мгновенно
-            if (tag === 'SELECT' || type === 'checkbox' || type === 'radio'
-                || type === 'date' || type === 'datetime-local' || type === 'month') {
+            // select / checkbox / radio — мгновенно
+            if (tag === 'SELECT' || type === 'checkbox' || type === 'radio') {
                 submit();
             }
+            // date — НЕ слушаем change: нативный пикер Windows генерирует
+            // его при навигации по месяцам/годам, до выбора конкретного дня.
+            // Сабмит даты — через Enter или кнопку формы.
         });
         // Enter в текстовом поле — мгновенный сабмит без ожидания debounce
         form.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 const el = e.target;
                 const type = (el.type || '').toLowerCase();
-                if (type === 'text' || type === 'search' || type === 'number') {
+                if (type === 'text' || type === 'search' || type === 'number' || type === 'date') {
                     e.preventDefault();
                     submit();
                 }

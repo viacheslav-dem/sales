@@ -193,7 +193,7 @@
         const pos = name.indexOf('(');
         if (pos < 0) return { main: name, meta: '' };
         const main = name.slice(0, pos).replace(/\s+$/, '');
-        const meta = name.slice(pos).replace(/^[\s()]+|[\s()]+$/g, '');
+        const meta = name.slice(pos).trim();
         return { main, meta };
     }
     function productNameHtml(name, extraHtml) {
@@ -1285,6 +1285,7 @@
             }
         } finally {
             inFlight = false;
+            refreshStatus();
         }
     }
 

@@ -33,8 +33,7 @@ function split_product_name(string $name): array {
         return ['main' => $name, 'meta' => ''];
     }
     $main = rtrim(mb_substr($name, 0, $pos));
-    $meta = trim(mb_substr($name, $pos), " \t\n\r\0\x0B()");
-    // Если после закрывающей скобки ещё есть текст — приклеиваем к meta
+    $meta = trim(mb_substr($name, $pos));
     return ['main' => $main, 'meta' => $meta];
 }
 

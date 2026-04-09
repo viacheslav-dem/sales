@@ -83,7 +83,7 @@ SQL);
 $inactiveStmt->execute([$spFrom, $spTo]);
 $inactive = $inactiveStmt->fetchAll();
 
-layout_header('Дашборд');
+layout_header('Дашборд', wide: true);
 ?>
 <h1 class="page-title">Дашборд</h1>
 

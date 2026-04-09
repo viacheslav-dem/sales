@@ -92,7 +92,7 @@ function layout_header(string $title = '', bool $wide = false, ?string $filterKe
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <meta name="color-scheme" content="light">
 <meta name="csrf-token" content="<?= htmlspecialchars(csrf_token(), ENT_QUOTES) ?>">
 <title><?= htmlspecialchars($pageTitle) ?></title>
@@ -108,7 +108,7 @@ function layout_header(string $title = '', bool $wide = false, ?string $filterKe
 <script src="assets/charts.js?v=<?= asset_v('assets/charts.js') ?>" defer></script>
 <?php endif; ?>
 
-<link rel="icon" type="image/webp" href="favicon.png.webp?v=<?= asset_v('favicon.png.webp') ?>">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<?= rawurlencode('<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 32 32\'><rect width=\'32\' height=\'32\' rx=\'8\' fill=\'%2316a34a\'/><path d=\'M7 22 L12 14 L17 18 L25 8\' fill=\'none\' stroke=\'white\' stroke-width=\'2.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/><circle cx=\'25\' cy=\'8\' r=\'2.5\' fill=\'white\'/></svg>') ?>">
 <?php if ($filterKey !== null): ?>
 <meta name="filter-key" content="<?= htmlspecialchars($filterKey, ENT_QUOTES) ?>">
 <?php endif; ?>
@@ -117,15 +117,16 @@ function layout_header(string $title = '', bool $wide = false, ?string $filterKe
 <?= icon_sprite() ?>
 <a href="#main-content" class="skip-link">Перейти к содержимому</a>
 <nav role="navigation" aria-label="Основная навигация">
+<div class="nav-inner">
     <button type="button" class="nav-burger" aria-label="Открыть меню" aria-expanded="false">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
     </button>
     <a href="dashboard.php" class="brand" aria-label="<?= htmlspecialchars(APP_NAME) ?> — на главную">
-        <img src="favicon.png.webp?v=<?= asset_v('favicon.png.webp') ?>"
-             width="32" height="32"
-             alt=""
-             class="brand-logo"
-             decoding="async">
+        <svg width="32" height="32" viewBox="0 0 32 32" class="brand-logo" aria-hidden="true">
+            <rect width="32" height="32" rx="8" fill="#16a34a"/>
+            <path d="M7 22 L12 14 L17 18 L25 8" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="25" cy="8" r="2.5" fill="white"/>
+        </svg>
         <span class="brand-text"><?= htmlspecialchars(APP_NAME) ?></span>
     </a>
     <div class="nav-links">
@@ -152,6 +153,7 @@ function layout_header(string $title = '', bool $wide = false, ?string $filterKe
         <span>Выйти</span>
     </a>
     </div>
+</div>
 </nav>
 <main id="main-content" class="<?= $mainCls ?>">
     <?php
