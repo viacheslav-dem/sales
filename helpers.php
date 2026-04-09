@@ -132,12 +132,12 @@ function shift_year_back(string $from, string $to): array {
  * Например, для (2026-04-01, 2026-04-07) → (2026-03-25, 2026-03-31).
  */
 function shift_period_back(string $from, string $to): array {
-    $fromTs = strtotime($from);
-    $toTs   = strtotime($to);
-    $days   = (int)round(($toTs - $fromTs) / 86400) + 1;
-    $prevTo   = date('Y-m-d', strtotime('-1 day', $fromTs));
-    $prevFrom = date('Y-m-d', strtotime('-' . ($days - 1) . ' day', strtotime($prevTo)));
-    return [$prevFrom, $prevTo];
+    $dtFrom = new DateTime($from);
+    $dtTo   = new DateTime($to);
+    $days   = (int)$dtFrom->diff($dtTo)->days + 1;
+    $prevTo   = (clone $dtFrom)->modify('-1 day');
+    $prevFrom = (clone $prevTo)->modify('-' . ($days - 1) . ' days');
+    return [$prevFrom->format('Y-m-d'), $prevTo->format('Y-m-d')];
 }
 
 /** Валидатор даты в формате Y-m-d. */

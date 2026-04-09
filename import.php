@@ -147,6 +147,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do_import'])) {
 
                 $log[] = ['info', "Лист «{$sheetName}»: найдено дат: " . count($dateCols)];
 
+                // Проверяем, есть ли POS-продажи за даты этого листа
+                $minDate = min($dateCols);
+                $maxDate = max($dateCols);
+                $posCheck = $pdo->prepare(
+                    "SELECT COUNT(*) FROM sales
+                     WHERE sale_date BETWEEN ? AND ? AND is_return = 0
+                       AND sold_at NOT LIKE '% 12:00:00'"
+                );
+                $posCheck->execute([$minDate, $maxDate]);
+                $posCount = (int)$posCheck->fetchColumn();
+                if ($posCount > 0) {
+                    $log[] = ['warn',
+                        "  ⚠ За период {$minDate} — {$maxDate} найдено {$posCount} записей, " .
+                        "введённых через кассу. Они будут перезаписаны данными из Excel."];
+                }
+
                 $maxRow        = $ws->getHighestDataRow();
                 $sheetProducts = 0;
                 $sheetSales    = 0;
@@ -238,7 +254,9 @@ layout_header('Импорт данных');
     <div class="alert alert-info alert-mb">
         Импортирует данные из файла <strong><?= htmlspecialchars(SOURCE_FILE) ?></strong>,
         расположенного в корневой папке приложения.
-        Операция безопасна для повторного запуска — существующие записи обновятся, дубликаты не создадутся.
+        <strong>Внимание:</strong> импорт заменяет продажи за совпадающие даты.
+        Если за эти дни уже были введены данные через кассу (POS), они будут перезаписаны данными из файла.
+        Рекомендуется запускать импорт только для начальной загрузки данных.
     </div>
     <form method="post" id="import-form">
         <?= csrf_field() ?>

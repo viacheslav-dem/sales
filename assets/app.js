@@ -392,6 +392,28 @@
         });
     }
 
+    // ── Защита от двойного сабмита ─────────────────────────────
+    // После первого submit блокируем кнопки формы, чтобы повторный клик
+    // не создал дубликат записи. Сброс при навигации назад (pageshow).
+    document.addEventListener('submit', (e) => {
+        const form = e.target;
+        if (!(form instanceof HTMLFormElement) || form.method.toUpperCase() !== 'POST') return;
+        // Не трогаем формы с data-auto-filter (они перезагружают страницу GET-ом)
+        if (form.hasAttribute('data-auto-filter')) return;
+        // Небольшая задержка — чтобы submit успел улететь
+        setTimeout(() => {
+            form.querySelectorAll('button[type="submit"], input[type="submit"]').forEach(btn => {
+                btn.disabled = true;
+            });
+        }, 0);
+    });
+    window.addEventListener('pageshow', (e) => {
+        if (e.persisted) {
+            document.querySelectorAll('form button[type="submit"]:disabled, form input[type="submit"]:disabled')
+                .forEach(btn => { btn.disabled = false; });
+        }
+    });
+
     // ── Сохранение/восстановление позиции скролла и фокуса при POST ─
     // Сохраняем scrollY и активный input перед каждым сабмитом формы и
     // восстанавливаем после загрузки той же страницы. Это критично для

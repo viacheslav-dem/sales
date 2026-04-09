@@ -97,17 +97,16 @@ function layout_header(string $title = '', bool $wide = false, ?string $filterKe
 <meta name="csrf-token" content="<?= htmlspecialchars(csrf_token(), ENT_QUOTES) ?>">
 <title><?= htmlspecialchars($pageTitle) ?></title>
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="style.css?v=<?= asset_v('style.css') ?>">
 
 <!-- Общие фронтенд-утилиты (App.openModal, debounce, escHtml, confirmDialog).
      defer: выполняется после парсинга DOM, но до DOMContentLoaded, и
      ПЕРЕД страничными скриптами (сохраняется порядок документа). -->
 <script src="assets/app.js?v=<?= asset_v('assets/app.js') ?>" defer></script>
+<?php if (in_array($cur, ['dashboard.php', 'report.php'], true)): ?>
 <script src="assets/chart.umd.min.js?v=<?= asset_v('assets/chart.umd.min.js') ?>" defer></script>
 <script src="assets/charts.js?v=<?= asset_v('assets/charts.js') ?>" defer></script>
+<?php endif; ?>
 
 <link rel="icon" type="image/webp" href="favicon.png.webp?v=<?= asset_v('favicon.png.webp') ?>">
 <?php if ($filterKey !== null): ?>
@@ -118,6 +117,9 @@ function layout_header(string $title = '', bool $wide = false, ?string $filterKe
 <?= icon_sprite() ?>
 <a href="#main-content" class="skip-link">Перейти к содержимому</a>
 <nav role="navigation" aria-label="Основная навигация">
+    <button type="button" class="nav-burger" aria-label="Открыть меню" aria-expanded="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
     <a href="dashboard.php" class="brand" aria-label="<?= htmlspecialchars(APP_NAME) ?> — на главную">
         <img src="favicon.png.webp?v=<?= asset_v('favicon.png.webp') ?>"
              width="32" height="32"
@@ -126,11 +128,11 @@ function layout_header(string $title = '', bool $wide = false, ?string $filterKe
              decoding="async">
         <span class="brand-text"><?= htmlspecialchars(APP_NAME) ?></span>
     </a>
+    <div class="nav-links">
     <?php
     $adminInserted = false;
     foreach ($nav as $file => [$label, $iconName, $adminOnly]):
         if ($adminOnly && !$userIsAdmin) continue;
-        // Визуальный разделитель перед админ-зоной (Пользователи / Импорт)
         if ($adminOnly && !$adminInserted):
             $adminInserted = true; ?>
             <span class="nav-divider" aria-hidden="true"></span>
@@ -149,6 +151,7 @@ function layout_header(string $title = '', bool $wide = false, ?string $filterKe
         <?= icon('logout', 16) ?>
         <span>Выйти</span>
     </a>
+    </div>
 </nav>
 <main id="main-content" class="<?= $mainCls ?>">
     <?php
@@ -160,6 +163,23 @@ function layout_footer(): void { ?>
     <?= icon('arrow-up', 20) ?>
 </button>
 <script>
+(() => {
+    const burger = document.querySelector('.nav-burger');
+    const links = document.querySelector('.nav-links');
+    if (burger && links) {
+        burger.addEventListener('click', () => {
+            const open = links.classList.toggle('nav-open');
+            burger.setAttribute('aria-expanded', String(open));
+        });
+        // Закрыть при клике на ссылку
+        links.querySelectorAll('a').forEach(a => {
+            a.addEventListener('click', () => {
+                links.classList.remove('nav-open');
+                burger.setAttribute('aria-expanded', 'false');
+            });
+        });
+    }
+})();
 (() => {
     const btn = document.getElementById('scroll-top-btn');
     if (!btn) return;

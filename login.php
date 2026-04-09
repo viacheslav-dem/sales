@@ -6,15 +6,42 @@ if (is_logged_in()) {
     exit;
 }
 
+// CSRF: на странице логина сессия уже стартована (auth.php), токен доступен
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = trim($_POST['username'] ?? '');
-    $password = $_POST['password'] ?? '';
-    if (login($username, $password)) {
-        header('Location: dashboard.php');
-        exit;
+    // Проверка CSRF-токена
+    $sentToken = $_POST['_token'] ?? '';
+    if (!is_string($sentToken) || !hash_equals(csrf_token(), $sentToken)) {
+        $error = 'Ошибка безопасности. Обновите страницу и попробуйте снова.';
+    } else {
+        // Защита от брутфорса: максимум 5 попыток, затем задержка
+        $maxAttempts = 5;
+        $lockoutSeconds = 60;
+        $attempts = $_SESSION['login_attempts'] ?? 0;
+        $lastAttempt = $_SESSION['login_last_attempt'] ?? 0;
+
+        // Сброс счётчика после периода блокировки
+        if ($attempts >= $maxAttempts && (time() - $lastAttempt) >= $lockoutSeconds) {
+            $attempts = 0;
+            $_SESSION['login_attempts'] = 0;
+        }
+
+        if ($attempts >= $maxAttempts) {
+            $remaining = $lockoutSeconds - (time() - $lastAttempt);
+            $error = "Слишком много попыток. Подождите {$remaining} сек.";
+        } else {
+            $username = trim($_POST['username'] ?? '');
+            $password = $_POST['password'] ?? '';
+            if (login($username, $password)) {
+                $_SESSION['login_attempts'] = 0;
+                header('Location: dashboard.php');
+                exit;
+            }
+            $_SESSION['login_attempts'] = $attempts + 1;
+            $_SESSION['login_last_attempt'] = time();
+            $error = 'Неверный логин или пароль.';
+        }
     }
-    $error = 'Неверный логин или пароль.';
 }
 ?>
 <!DOCTYPE html>
@@ -26,7 +53,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <title>Вход — <?= htmlspecialchars(APP_NAME) ?></title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82f6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z'/><line x1='3' y1='6' x2='21' y2='6'/><path d='M16 10a4 4 0 0 1-8 0'/></svg>">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url('assets/fonts/inter-cyrillic-ext.woff2') format('woff2');
+    unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url('assets/fonts/inter-cyrillic.woff2') format('woff2');
+    unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url('assets/fonts/inter-latin.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 
 :root {
     --primary:    #2563eb;
@@ -258,6 +308,7 @@ input:focus {
 
     <div class="card">
         <form method="post" novalidate aria-label="Форма входа">
+            <?= csrf_field() ?>
             <div class="form-group">
                 <label for="username">Логин</label>
                 <div class="input-wrap">

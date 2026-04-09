@@ -21,15 +21,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $msgType = 'error';
                 break;
             }
-            $exists = $pdo->prepare("SELECT id FROM categories WHERE name = ?");
-            $exists->execute([$name]);
-            if ($exists->fetch()) {
-                $msg = 'Категория с таким названием уже существует.';
+            try {
+                $pdo->prepare("INSERT INTO categories (name, sort_order) VALUES (?, ?)")->execute([$name, $sort]);
+                $msg = 'Категория добавлена.';
+            } catch (Throwable $e) {
+                if (str_contains($e->getMessage(), 'UNIQUE')) {
+                    $msg = 'Категория с таким названием уже существует.';
+                } else {
+                    error_log('categories.php add error: ' . $e->getMessage());
+                    $msg = 'Не удалось добавить категорию. Попробуйте ещё раз.';
+                }
                 $msgType = 'error';
-                break;
             }
-            $pdo->prepare("INSERT INTO categories (name, sort_order) VALUES (?, ?)")->execute([$name, $sort]);
-            $msg = 'Категория добавлена.';
             break;
         }
 
@@ -42,16 +45,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $msgType = 'error';
                 break;
             }
-            $dup = $pdo->prepare("SELECT id FROM categories WHERE name = ? AND id != ?");
-            $dup->execute([$name, $id]);
-            if ($dup->fetch()) {
-                $msg = 'Другая категория с таким названием уже существует.';
+            try {
+                $pdo->prepare("UPDATE categories SET name = ?, sort_order = ? WHERE id = ?")
+                    ->execute([$name, $sort, $id]);
+                $msg = 'Категория обновлена.';
+            } catch (Throwable $e) {
+                if (str_contains($e->getMessage(), 'UNIQUE')) {
+                    $msg = 'Другая категория с таким названием уже существует.';
+                } else {
+                    error_log('categories.php edit error: ' . $e->getMessage());
+                    $msg = 'Не удалось обновить категорию. Попробуйте ещё раз.';
+                }
                 $msgType = 'error';
-                break;
             }
-            $pdo->prepare("UPDATE categories SET name = ?, sort_order = ? WHERE id = ?")
-                ->execute([$name, $sort, $id]);
-            $msg = 'Категория обновлена.';
             break;
         }
 
@@ -131,18 +137,20 @@ layout_header('Категории');
             <tr class="<?= $isEdit ? 'row-editing' : '' ?>">
                 <?php if ($isEdit): ?>
                 <td><?= $i + 1 ?></td>
-                <form method="post">
-                <?= csrf_field() ?>
-                <input type="hidden" name="action" value="edit">
-                <input type="hidden" name="id"     value="<?= $c['id'] ?>">
-                <td><input type="text" name="name" class="w-full" value="<?= htmlspecialchars($c['name']) ?>" required></td>
-                <td class="num"><input type="number" name="sort_order" value="<?= (int)$c['sort_order'] ?>" step="1" class="cat-sort-input"></td>
+                <td>
+                    <form method="post" id="edit-cat-<?= $c['id'] ?>">
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="edit">
+                        <input type="hidden" name="id"     value="<?= $c['id'] ?>">
+                        <input type="text" name="name" class="w-full" value="<?= htmlspecialchars($c['name']) ?>" required>
+                    </form>
+                </td>
+                <td class="num"><input type="number" name="sort_order" value="<?= (int)$c['sort_order'] ?>" step="1" class="cat-sort-input" form="edit-cat-<?= $c['id'] ?>"></td>
                 <td class="num"><?= (int)$c['products_count'] ?></td>
                 <td class="actions-cell">
-                    <button type="submit" class="btn btn-primary btn-sm"><?= icon('check', 14) ?>Сохранить</button>
+                    <button type="submit" form="edit-cat-<?= $c['id'] ?>" class="btn btn-primary btn-sm"><?= icon('check', 14) ?>Сохранить</button>
                     <a href="categories.php" class="btn btn-secondary btn-sm">Отмена</a>
                 </td>
-                </form>
                 <?php else: ?>
                 <td><?= $i + 1 ?></td>
                 <td><strong><?= htmlspecialchars($c['name']) ?></strong></td>

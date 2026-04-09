@@ -73,7 +73,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (str_contains($e->getMessage(), 'UNIQUE') && str_contains($e->getMessage(), 'name')) {
                     $msg = 'Товар с таким наименованием уже существует.';
                 } else {
-                    $msg = 'Не удалось добавить товар: ' . $e->getMessage();
+                    error_log('products.php add error: ' . $e->getMessage());
+                    $msg = 'Не удалось добавить товар. Попробуйте ещё раз.';
                 }
                 $msgType = 'error';
                 break;
@@ -115,7 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($newPrice !== '') {
                     $priceVal = (float)str_replace(',', '.', $newPrice);
                     if ($priceVal >= 0) {
-                        $cur = product_price_on($pdo, $id, $today);
+                        $cur = product_price_on($pdo, $id, $validFrom);
                         if (round($priceVal, 2) !== round($cur, 2)) {
                             $pdo->prepare(<<<SQL
                                 INSERT INTO product_prices (product_id, price, valid_from)
@@ -131,7 +132,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (str_contains($e->getMessage(), 'UNIQUE') && str_contains($e->getMessage(), 'name')) {
                     $msg = 'Другой товар с таким наименованием уже существует.';
                 } else {
-                    $msg = 'Не удалось обновить товар: ' . $e->getMessage();
+                    error_log('products.php edit error: ' . $e->getMessage());
+                    $msg = 'Не удалось обновить товар. Попробуйте ещё раз.';
                 }
                 $msgType = 'error';
                 break;
@@ -191,6 +193,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ON CONFLICT(product_id, valid_from) DO UPDATE SET price = excluded.price
                 SQL);
 
+                // Загружаем текущие цены всех редактируемых товаров одним запросом
+                $intIds = array_filter(array_map('intval', $ids), fn($v) => $v > 0);
+                $curPrices = [];
+                if (!empty($intIds)) {
+                    $placeholders = implode(',', array_fill(0, count($intIds), '?'));
+                    $priceStmt = $pdo->prepare(<<<SQL
+                        SELECT p.id,
+                            COALESCE((
+                                SELECT pp.price FROM product_prices pp
+                                WHERE pp.product_id = p.id AND pp.valid_from <= ?
+                                ORDER BY pp.valid_from DESC LIMIT 1
+                            ), 0) AS price
+                        FROM products p
+                        WHERE p.id IN ($placeholders)
+                    SQL);
+                    $priceStmt->execute(array_merge([$validFrom], array_values($intIds)));
+                    foreach ($priceStmt->fetchAll() as $r) {
+                        $curPrices[(int)$r['id']] = (float)$r['price'];
+                    }
+                }
+
                 foreach ($ids as $idx => $rawId) {
                     $id      = (int)$rawId;
                     if ($id <= 0) continue;
@@ -210,7 +233,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($priceRw !== '') {
                         $priceVal = (float)str_replace(',', '.', $priceRw);
                         if ($priceVal >= 0) {
-                            $cur = product_price_on($pdo, $id, $today);
+                            $cur = $curPrices[$id] ?? 0.0;
                             if (round($priceVal, 2) !== round($cur, 2)) {
                                 $insPrice->execute([$id, $priceVal, $validFrom]);
                                 $priceUpdated++;
@@ -221,7 +244,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->commit();
             } catch (Throwable $e) {
                 $pdo->rollBack();
-                $msg = 'Ошибка массового обновления: ' . $e->getMessage();
+                error_log('products.php bulk_edit error: ' . $e->getMessage());
+                $msg = 'Ошибка массового обновления. Попробуйте ещё раз.';
                 $msgType = 'error';
                 break;
             }

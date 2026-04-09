@@ -300,5 +300,6 @@ try {
     json_out(['ok' => true, 'id_map' => $idMap, 'times' => $timeMap, 'ret_times' => $retTimeMap]);
 } catch (\Throwable $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
-    json_out(['ok' => false, 'error' => $e->getMessage()], 500);
+    error_log('daily_save error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    json_out(['ok' => false, 'error' => 'Внутренняя ошибка сервера. Попробуйте обновить страницу.'], 500);
 }

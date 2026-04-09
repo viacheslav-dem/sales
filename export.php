@@ -11,6 +11,7 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 
 $pdo = db();
 
@@ -83,7 +84,7 @@ if (!$hasDiscounts) {
 }
 
 $lastColIdx = count($headers); // 1-based last column
-$lastCol = chr(ord('A') + $lastColIdx - 1);
+$lastCol = Coordinate::stringFromColumnIndex($lastColIdx);
 
 // ── Заголовок отчёта ───────────────────────────────────────
 $title = 'Отчёт о продажах за ' . $periodLabel;
@@ -109,34 +110,34 @@ $row = 4;
 foreach ($rows as $i => $r) {
     $col = 1;
     if ($grp === 'product') {
-        $ws->setCellValueByColumnAndRow($col++, $row, $i + 1);
-        $ws->setCellValueByColumnAndRow($col++, $row, $r['name']);
-        $ws->setCellValueByColumnAndRow($col++, $row, $r['category_name']);
-        $ws->setCellValueByColumnAndRow($col++, $row, (float)$r['catalog_price']);
-        $ws->setCellValueByColumnAndRow($col++, $row, (int)$r['net_qty']);
-        if ($hasDiscounts) $ws->setCellValueByColumnAndRow($col++, $row, (float)$r['net_discount']);
-        $ws->setCellValueByColumnAndRow($col++, $row, (float)$r['net_sum']);
+        $ws->setCellValue([$col++, $row], $i + 1);
+        $ws->setCellValue([$col++, $row], $r['name']);
+        $ws->setCellValue([$col++, $row], $r['category_name']);
+        $ws->setCellValue([$col++, $row], (float)$r['catalog_price']);
+        $ws->setCellValue([$col++, $row], (int)$r['net_qty']);
+        if ($hasDiscounts) $ws->setCellValue([$col++, $row], (float)$r['net_discount']);
+        $ws->setCellValue([$col++, $row], (float)$r['net_sum']);
     } elseif ($grp === 'category') {
-        $ws->setCellValueByColumnAndRow($col++, $row, $i + 1);
-        $ws->setCellValueByColumnAndRow($col++, $row, $r['name']);
-        $ws->setCellValueByColumnAndRow($col++, $row, (int)$r['net_qty']);
-        if ($hasDiscounts) $ws->setCellValueByColumnAndRow($col++, $row, (float)$r['net_discount']);
-        $ws->setCellValueByColumnAndRow($col++, $row, (float)$r['net_sum']);
+        $ws->setCellValue([$col++, $row], $i + 1);
+        $ws->setCellValue([$col++, $row], $r['name']);
+        $ws->setCellValue([$col++, $row], (int)$r['net_qty']);
+        if ($hasDiscounts) $ws->setCellValue([$col++, $row], (float)$r['net_discount']);
+        $ws->setCellValue([$col++, $row], (float)$r['net_sum']);
     } elseif ($grp === 'day') {
         $dt = new DateTime($r['day']);
-        $ws->setCellValueByColumnAndRow($col++, $row, $i + 1);
-        $ws->setCellValueByColumnAndRow($col++, $row, $dt->format('d.m.Y'));
-        $ws->setCellValueByColumnAndRow($col++, $row, $weekdayShort[(int)$dt->format('N')]);
-        $ws->setCellValueByColumnAndRow($col++, $row, (int)$r['net_qty']);
-        if ($hasDiscounts) $ws->setCellValueByColumnAndRow($col++, $row, (float)$r['net_discount']);
-        $ws->setCellValueByColumnAndRow($col++, $row, (float)$r['net_sum']);
+        $ws->setCellValue([$col++, $row], $i + 1);
+        $ws->setCellValue([$col++, $row], $dt->format('d.m.Y'));
+        $ws->setCellValue([$col++, $row], $weekdayShort[(int)$dt->format('N')]);
+        $ws->setCellValue([$col++, $row], (int)$r['net_qty']);
+        if ($hasDiscounts) $ws->setCellValue([$col++, $row], (float)$r['net_discount']);
+        $ws->setCellValue([$col++, $row], (float)$r['net_sum']);
     } else { // weekday
         $w = (int)$r['weekday'];
         $wKey = $w === 0 ? 7 : $w;
-        $ws->setCellValueByColumnAndRow($col++, $row, $weekdayShort[$wKey]);
-        $ws->setCellValueByColumnAndRow($col++, $row, (int)$r['net_qty']);
-        if ($hasDiscounts) $ws->setCellValueByColumnAndRow($col++, $row, (float)$r['net_discount']);
-        $ws->setCellValueByColumnAndRow($col++, $row, (float)$r['net_sum']);
+        $ws->setCellValue([$col++, $row], $weekdayShort[$wKey]);
+        $ws->setCellValue([$col++, $row], (int)$r['net_qty']);
+        if ($hasDiscounts) $ws->setCellValue([$col++, $row], (float)$r['net_discount']);
+        $ws->setCellValue([$col++, $row], (float)$r['net_sum']);
     }
     $row++;
 }
@@ -145,20 +146,20 @@ foreach ($rows as $i => $r) {
 $footRow = $row;
 $labelSpan = 1;
 switch ($grp) {
-    case 'product':  $labelSpan = $hasDiscounts ? 4 : 4; break;
+    case 'product':  $labelSpan = $hasDiscounts ? 4 : 3; break;
     case 'category': $labelSpan = 2; break;
     case 'day':      $labelSpan = 3; break;
     case 'weekday':  $labelSpan = 1; break;
 }
 if ($labelSpan > 1) {
-    $ws->mergeCells('A' . $footRow . ':' . chr(ord('A') + $labelSpan - 1) . $footRow);
+    $ws->mergeCells('A' . $footRow . ':' . Coordinate::stringFromColumnIndex($labelSpan) . $footRow);
 }
 $ws->setCellValue('A' . $footRow, 'Итого');
 
 $colCursor = $labelSpan + 1;
-$ws->setCellValueByColumnAndRow($colCursor++, $footRow, $totals['qty']);
-if ($hasDiscounts) $ws->setCellValueByColumnAndRow($colCursor++, $footRow, $totals['discount']);
-$ws->setCellValueByColumnAndRow($colCursor++, $footRow, $totals['sum']);
+$ws->setCellValue([$colCursor++, $footRow], $totals['qty']);
+if ($hasDiscounts) $ws->setCellValue([$colCursor++, $footRow], $totals['discount']);
+$ws->setCellValue([$colCursor++, $footRow], $totals['sum']);
 
 $ws->getStyle('A' . $footRow . ':' . $lastCol . $footRow)->applyFromArray([
     'font' => ['bold' => true],
@@ -173,13 +174,13 @@ if ($row > 4) {
 }
 // Денежный формат для последних 1-3 колонок
 $startMoneyIdx = $hasDiscounts ? $lastColIdx - 1 : $lastColIdx;
-$startMoneyCol = chr(ord('A') + $startMoneyIdx - 1);
+$startMoneyCol = Coordinate::stringFromColumnIndex($startMoneyIdx);
 $ws->getStyle($startMoneyCol . '4:' . $lastCol . $footRow)
    ->getNumberFormat()->setFormatCode('#,##0.00');
 
 // Ширина столбцов
 foreach ($widths as $i => $w) {
-    $ws->getColumnDimension(chr(ord('A') + $i))->setWidth($w);
+    $ws->getColumnDimension(Coordinate::stringFromColumnIndex($i + 1))->setWidth($w);
 }
 
 // ── Отдача файла ───────────────────────────────────────────

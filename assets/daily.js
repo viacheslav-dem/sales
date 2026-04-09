@@ -1256,7 +1256,6 @@
             }
             commitSnapshot(sentSnapshot);
             networkError = false;
-            inFlight = false;
 
             // Если за время запроса что-то ещё накопилось — флашим снова.
             const newPayload = buildPayload();
@@ -1264,12 +1263,9 @@
             refreshStatus();
             if (dirty) scheduleSave();
         } catch (err) {
-            inFlight = false;
             const e = (err && err.kind) ? err : { kind: 'transient', message: String(err) };
             console.error('autosave failed', e);
             if (e.kind === 'fatal') {
-                // Ретрай не поможет: сессия истекла, нет прав или сервер сказал
-                // «нет». Останавливаем очередь и показываем явное сообщение.
                 fatalError = e.message;
                 networkError = false;
                 refreshStatus();
@@ -1282,13 +1278,13 @@
             } else {
                 networkError = true;
                 refreshStatus();
-                // Ретраим только автоматический трафик. Ручной flush не повторяем,
-                // иначе пользователь увидит спам ошибок при кнопке «Сохранить сейчас».
                 if (!opts.manual) {
                     if (pendingTimer) clearTimeout(pendingTimer);
                     pendingTimer = setTimeout(flushQueue, RETRY_MS);
                 }
             }
+        } finally {
+            inFlight = false;
         }
     }
 
