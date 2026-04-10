@@ -501,6 +501,5 @@ function buildSortUrl(string $sort): string {
 <?php endif; ?>
 </div>
 
-<script src="assets/report.js?v=<?= asset_v('assets/report.js') ?>" defer></script>
 
 <?php layout_footer(); ?>

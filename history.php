@@ -57,16 +57,11 @@ $orderMap = [
 $orderBy = $orderMap[$sort] ?? $orderMap['date_desc'];
 
 // Пагинация
-$page    = max(1, (int)($_GET['page'] ?? 1));
-$perPage = 50;
-
 $cntSql = "SELECT COUNT(*) FROM sales s INNER JOIN products p ON p.id = s.product_id WHERE $whereSql";
 $cntStmt = $pdo->prepare($cntSql);
 $cntStmt->execute($params);
 $totalCount = (int)$cntStmt->fetchColumn();
-$totalPages = max(1, (int)ceil($totalCount / $perPage));
-if ($page > $totalPages) $page = $totalPages;
-$offset = ($page - 1) * $perPage;
+extract(paginate($totalCount, 50, (int)($_GET['page'] ?? 1)));
 
 $sql = <<<SQL
     SELECT

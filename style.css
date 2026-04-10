@@ -939,7 +939,7 @@ input[type=number] { -moz-appearance: textfield; }
 
 /* Цветная акцентная карточка (выручка) */
 .summary-item.accent {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  background: linear-gradient(135deg, var(--clr-primary) 0%, var(--clr-primary-700) 100%);
   border-color: var(--clr-primary-700);
   color: #fff;
 }
@@ -1045,6 +1045,7 @@ input[type=number].qty-input {
   line-height: 1.4;
   border: 1px solid transparent;
 }
+.badge[hidden] { display: none; }
 .badge-success { background: var(--clr-success-light); color: var(--clr-success-text); border-color: var(--clr-success-border); }
 .badge-success::before {
   content: '';
@@ -1316,21 +1317,6 @@ th.col-divider, td.col-divider { border-left: 1px solid var(--border); }
     font-weight: 600;
 }
 
-/* Двухуровневое имя в строках отчёта */
-.report-table .product-name__main {
-    display: block;
-    font-weight: 500;
-    color: var(--text-primary);
-    line-height: 1.35;
-}
-.report-table .product-name__meta {
-    display: block;
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
-    margin-top: 2px;
-    line-height: 1.3;
-}
-
 /* Зебра в отчёте — мягкая, чтобы строки были легче читать */
 .report-table tbody tr:nth-child(even) td { background: rgba(15, 23, 42, 0.015); }
 .report-table tbody tr:nth-child(even) td.col-divider { background: rgba(37, 99, 235, 0.06); }
@@ -1371,20 +1357,6 @@ th.col-divider, td.col-divider { border-left: 1px solid var(--border); }
 .history-table tbody tr.is-return-row:nth-child(even) td { background: var(--clr-danger-light); }
 .history-table tbody tr.is-return-row td.col-divider,
 .history-table tbody tr.is-return-row:nth-child(even) td.col-divider { background: #fde2dc; }
-
-.history-table .product-name__main {
-    display: block;
-    font-weight: 500;
-    color: var(--text-primary);
-    line-height: 1.35;
-}
-.history-table .product-name__meta {
-    display: block;
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
-    margin-top: 2px;
-    line-height: 1.3;
-}
 
 /* ── Двухуровневое название товара (заголовок + комплектация) ── */
 .product-name { display: block; }
@@ -1748,8 +1720,8 @@ textarea.name-textarea {
 .pay-select:focus  { outline: none; border-color: var(--border-focus); box-shadow: var(--shadow-focus); }
 /* Цветные маркеры по способу оплаты */
 .pay-select--cash  { background-color: #ecfdf5; color: #047857; border-color: #a7f3d0; }
-.pay-select--card  { background-color: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
-.pay-select--other { background-color: #f1f5f9; color: #475569; border-color: #cbd5e1; }
+.pay-select--card  { background-color: var(--clr-primary-light); color: var(--clr-primary-700); border-color: var(--clr-primary-200); }
+.pay-select--other { background-color: var(--bg-app); color: var(--text-secondary); border-color: var(--border-strong); }
 
 /* Заметка к строке */
 .note-input {
@@ -1767,8 +1739,8 @@ textarea.name-textarea {
   border-radius: var(--radius-pill);
 }
 .badge-pay-cash  { background: #ecfdf5; color: #047857; }
-.badge-pay-card  { background: #eff6ff; color: #1d4ed8; }
-.badge-pay-other { background: #f1f5f9; color: #475569; }
+.badge-pay-card  { background: var(--clr-primary-light); color: var(--clr-primary-700); }
+.badge-pay-other { background: var(--bg-app); color: var(--text-secondary); }
 
 /* Индикатор автосохранения в шапке POS-блока */
 .save-status {
@@ -1787,8 +1759,8 @@ textarea.name-textarea {
 /* display: inline-flex перебивает [hidden] — возвращаем скрытие */
 .save-status[hidden] { display: none; }
 .save-status[data-status="saving"] {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--clr-primary-100);
+  color: var(--clr-primary-700);
   border-color: #93c5fd;
 }
 .save-status[data-status="ok"] {
@@ -1798,14 +1770,14 @@ textarea.name-textarea {
 }
 .save-status[data-status="pending"] {
   background: #fef3c7;
-  color: #92400e;
+  color: var(--clr-warning-text);
   border-color: #fcd34d;
   /* Мягкая пульсация: «не забудь, есть несохранённое» */
   animation: save-status-pulse 1.6s ease-in-out infinite;
 }
 .save-status[data-status="error"] {
   background: #fee2e2;
-  color: #991b1b;
+  color: var(--clr-danger-text);
   border-color: #fca5a5;
   animation: save-status-pulse 1.2s ease-in-out infinite;
 }
@@ -2081,7 +2053,7 @@ textarea.name-textarea {
   border-left: 3px solid var(--clr-primary);
   padding-left: calc(var(--sp-5) - 3px);
 }
-.modal-row--added:hover { background: #dbeafe; }
+.modal-row--added:hover { background: var(--clr-primary-100); }
 
 .modal-row-name {
   flex: 1;

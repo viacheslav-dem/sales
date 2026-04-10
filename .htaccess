@@ -21,5 +21,5 @@ Options -Indexes
     Header set Referrer-Policy "same-origin"
     Header set Permissions-Policy "geolocation=(), microphone=(), camera=()"
     # CSP: разрешены inline scripts/styles (требуется текущим кодом), шрифты локальные
-    Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
+    Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
 </IfModule>

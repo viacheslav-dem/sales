@@ -1,18 +1,6 @@
 /**
- * Инициализация графиков на основе Chart.js.
- *
- * Любой <canvas data-chart='{...}'> на странице автоматически превращается
- * в график. Конфиг — JSON со схемой:
- *   { type: 'line'|'bar'|'doughnut',
- *     labels: string[],
- *     values: number[],
- *     label?: string,        // подпись dataset
- *     color?: string,        // основной цвет (#hex)
- *     fill?: bool,           // заливка под линией
- *     avg?: bool,            // показать среднее линией
- *     highlightMax?: bool,   // подсветить максимальный столбец
- *     valueSuffix?: string,  // суффикс в тултипе («руб.», «шт.» и т.д.)
- *     colors?: string[] }    // (для doughnut) индивидуальные цвета сегментов
+ * Графики Chart.js. Любой <canvas data-chart='{ type, labels, values, ... }'> →
+ * автоматическая инициализация. Поддержка: line, bar, doughnut.
  */
 (() => {
     'use strict';
@@ -42,6 +30,22 @@
             minimumFractionDigits: 0,
             maximumFractionDigits: 2,
         });
+    }
+
+    function buildAvgDataset(values) {
+        if (!values || values.length <= 1) return null;
+        const avg = values.reduce((a, b) => a + b, 0) / values.length;
+        return {
+            type: 'line',
+            label: 'Среднее',
+            data: values.map(() => avg),
+            borderColor: '#94a3b8',
+            borderDash: [5, 5],
+            borderWidth: 1.5,
+            pointRadius: 0,
+            pointHoverRadius: 0,
+            fill: false,
+        };
     }
 
     function tooltipStyle(suffix) {
@@ -87,19 +91,9 @@
             borderWidth: 2.2,
         }];
 
-        if (cfg.avg && cfg.values.length > 1) {
-            const avg = cfg.values.reduce((a, b) => a + b, 0) / cfg.values.length;
-            datasets.push({
-                type: 'line',
-                label: 'Среднее',
-                data: cfg.values.map(() => avg),
-                borderColor: '#94a3b8',
-                borderDash: [5, 5],
-                borderWidth: 1.5,
-                pointRadius: 0,
-                pointHoverRadius: 0,
-                fill: false,
-            });
+        if (cfg.avg) {
+            const avgDs = buildAvgDataset(cfg.values);
+            if (avgDs) datasets.push(avgDs);
         }
 
         return new Chart(ctx, {
@@ -159,19 +153,9 @@
             maxBarThickness: 80,
         }];
 
-        if (cfg.avg && cfg.values.length > 1) {
-            const avg = cfg.values.reduce((a, b) => a + b, 0) / cfg.values.length;
-            datasets.push({
-                type: 'line',
-                label: 'Среднее',
-                data: cfg.values.map(() => avg),
-                borderColor: '#94a3b8',
-                borderDash: [5, 5],
-                borderWidth: 1.5,
-                pointRadius: 0,
-                pointHoverRadius: 0,
-                fill: false,
-            });
+        if (cfg.avg) {
+            const avgDs = buildAvgDataset(cfg.values);
+            if (avgDs) datasets.push(avgDs);
         }
 
         return new Chart(ctx, {

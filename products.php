@@ -118,11 +118,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($priceVal >= 0) {
                         $cur = product_price_on($pdo, $id, $validFrom);
                         if (round($priceVal, 2) !== round($cur, 2)) {
-                            $pdo->prepare(<<<SQL
-                                INSERT INTO product_prices (product_id, price, valid_from)
-                                VALUES (?, ?, ?)
-                                ON CONFLICT(product_id, valid_from) DO UPDATE SET price = excluded.price
-                            SQL)->execute([$id, $priceVal, $validFrom]);
+                            upsert_product_price($pdo, $id, $priceVal, $validFrom);
                         }
                     }
                 }
@@ -187,11 +183,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->beginTransaction();
             try {
                 $upStmt   = $pdo->prepare("UPDATE products SET name = ?, category_id = ? WHERE id = ?");
-                $insPrice = $pdo->prepare(<<<SQL
-                    INSERT INTO product_prices (product_id, price, valid_from)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(product_id, valid_from) DO UPDATE SET price = excluded.price
-                SQL);
+                // upsert_product_price() вызывается ниже в цикле
 
                 // Загружаем текущие цены всех редактируемых товаров одним запросом
                 $intIds = array_filter(array_map('intval', $ids), fn($v) => $v > 0);
@@ -235,7 +227,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if ($priceVal >= 0) {
                             $cur = $curPrices[$id] ?? 0.0;
                             if (round($priceVal, 2) !== round($cur, 2)) {
-                                $insPrice->execute([$id, $priceVal, $validFrom]);
+                                upsert_product_price($pdo, $id, $priceVal, $validFrom);
                                 $priceUpdated++;
                             }
                         }
@@ -260,16 +252,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ── Список категорий (для select и фильтра) ────────────────
-$allCategories = $pdo->query("SELECT id, name FROM categories ORDER BY sort_order, name")->fetchAll();
+$allCategories = list_categories($pdo);
 
 // ── Поиск, фильтр по категории и пагинация ─────────────────
 $search       = trim($_GET['q'] ?? '');
 $catFilter    = $_GET['cat'] ?? '';     // '', '0' (без категории), or category id
 $statusFilter = $_GET['status'] ?? 'active'; // active | archived | all
 if (!in_array($statusFilter, ['active', 'archived', 'all'], true)) $statusFilter = 'active';
-$page         = max(1, (int)($_GET['page'] ?? 1));
-$perPage      = 25;
-
 $where  = [];
 $params = [];
 if ($search !== '') {
@@ -301,9 +290,7 @@ $totalCount = (int)$cntStmt->fetchColumn();
 
 $totalAll = (int)$pdo->query("SELECT COUNT(*) FROM products")->fetchColumn();
 
-$totalPages = max(1, (int)ceil($totalCount / $perPage));
-if ($page > $totalPages) $page = $totalPages;
-$offset = ($page - 1) * $perPage;
+extract(paginate($totalCount, 25, (int)($_GET['page'] ?? 1)));
 
 // Запрос с подзапросами: текущая и следующая цены.
 // ВАЖНО: PDO с позиционными «?» подставляет параметры по порядку их появления

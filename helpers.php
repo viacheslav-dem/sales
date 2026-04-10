@@ -542,6 +542,32 @@ function product_price_on(PDO $pdo, int $productId, string $onDate): float {
 }
 
 /**
+ * Upsert цены товара: вставляет или обновляет запись в product_prices.
+ * Инкапсулирует общий паттерн INSERT … ON CONFLICT, который используется
+ * в products.php и import.php.
+ */
+function upsert_product_price(PDO $pdo, int $productId, float $price, string $validFrom): void {
+    $pdo->prepare(<<<SQL
+        INSERT INTO product_prices (product_id, price, valid_from)
+        VALUES (?, ?, ?)
+        ON CONFLICT(product_id, valid_from) DO UPDATE SET price = excluded.price
+    SQL)->execute([$productId, round($price, 2), $validFrom]);
+}
+
+/**
+ * Вычисляет параметры пагинации из общего количества записей.
+ *
+ * @return array{page: int, totalPages: int, totalCount: int, perPage: int, offset: int}
+ */
+function paginate(int $totalCount, int $perPage, int $page): array {
+    $page       = max(1, $page);
+    $totalPages = max(1, (int)ceil($totalCount / $perPage));
+    if ($page > $totalPages) $page = $totalPages;
+    $offset     = ($page - 1) * $perPage;
+    return compact('page', 'totalPages', 'totalCount', 'perPage', 'offset');
+}
+
+/**
  * Рендер пагинации (один общий компонент для products/history и любых
  * новых таблиц со списками). Эхает HTML — вызывать там, где нужна разметка.
  *

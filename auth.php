@@ -2,6 +2,8 @@
 require_once __DIR__ . '/db.php';
 
 if (session_status() === PHP_SESSION_NONE) {
+    // Сессия живёт 8 часов бездействия (рабочая смена)
+    ini_set('session.gc_maxlifetime', 28800);
     // Харднутые cookie-параметры: HttpOnly + SameSite=Strict + Secure если HTTPS
     $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
            || ($_SERVER['SERVER_PORT'] ?? null) == 443;

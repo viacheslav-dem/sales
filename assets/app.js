@@ -1,9 +1,5 @@
 /**
- * Общие фронтенд-утилиты для всех страниц.
- * Подключается в layout.php через <script src="assets/app.js" defer>.
- *
- * Экспортируется глобально как window.App, чтобы страничные скрипты
- * могли обращаться без модульной системы.
+ * Общие фронтенд-утилиты. Экспортируется как window.App.
  */
 (function () {
     'use strict';
@@ -73,17 +69,14 @@
             .filter(el => el.offsetParent !== null || el === document.activeElement);
     }
 
-    /**
-     * Стек открытых модалок. Верхний — активный.
-     * Каждая запись: { overlay, prevFocus, onKeydown }
-     */
+    // Стек открытых модалок; верхний — активный.
     const modalStack = [];
 
     function openModal(overlay, options = {}) {
         const box = overlay.querySelector('.modal-box') || overlay;
         const prevFocus = document.activeElement;
 
-        // Спрятать фоновый контент от AT
+        // Скрыть фон от screen readers
         const main = document.getElementById('main-content');
         const nav = document.querySelector('nav[role="navigation"]');
         if (main && !main.contains(overlay)) main.setAttribute('inert', '');
@@ -92,7 +85,6 @@
         overlay.classList.add('open');
         lockBodyScroll();
 
-        // Focus trap через keydown
         function onKeydown(e) {
             if (e.key === 'Escape') {
                 e.stopPropagation();
@@ -116,12 +108,10 @@
 
         modalStack.push({ overlay, box, prevFocus, onKeydown });
 
-        // Начальный фокус
         const initial = options.initialFocus
             ? box.querySelector(options.initialFocus)
             : getFocusable(box)[0];
         if (initial) {
-            // setTimeout чтобы фокус не потерялся из-за animation
             setTimeout(() => initial.focus(), 20);
         }
     }
@@ -135,11 +125,8 @@
         overlay.classList.remove('open');
         unlockBodyScroll();
 
-        // Пересчёт inert на фоне.
-        //   • стек пуст → main и nav снова кликабельны;
-        //   • в стеке осталась модалка ВНУТРИ main (например, мы закрывали
-        //     confirm поверх return-modal) → снимаем inert с main, иначе
-        //     оставшаяся модалка окажется «замороженной».
+        // Пересчёт inert: если стек пуст — разблокировать фон;
+        // если осталась модалка внутри main — снять inert с main.
         const main = document.getElementById('main-content');
         const nav  = document.querySelector('nav[role="navigation"]');
         if (modalStack.length === 0) {
@@ -152,14 +139,11 @@
             }
         }
 
-        // Вернуть фокус
-        try { entry.prevFocus?.focus?.(); } catch (e) { /* element might be gone */ }
-
-        // Уведомить подписчиков (например, confirmDialog) о закрытии
+        try { entry.prevFocus?.focus?.(); } catch (e) {}
         overlay.dispatchEvent(new CustomEvent('modal:closed'));
     }
 
-    /** Закрытие верхней модалки при клике по overlay вне box. */
+    // Закрытие при клике по overlay вне box
     document.addEventListener('click', (e) => {
         const overlay = e.target.closest('.modal-overlay');
         if (overlay && e.target === overlay && overlay.classList.contains('open')) {
@@ -167,11 +151,7 @@
         }
     });
 
-    // ── Confirm dialog (заменяет window.confirm) ────────────
-    /**
-     * Асинхронный подтверждающий диалог. Возвращает Promise<boolean>.
-     * Использует разметку, которая рендерится один раз по требованию.
-     */
+    // ── Confirm dialog (замена window.confirm) ─────────────
     let confirmDialogEl = null;
 
     function ensureConfirmDialog() {
@@ -222,7 +202,6 @@
             }
             function onOk()             { cleanup(true);  }
             function onCancel()         { cleanup(false); }
-            // Если модалку закрыли через Esc или клик по overlay — расцениваем как «отмена»
             function onExternalClose()  { cleanup(false); }
 
             okBtn.addEventListener('click', onOk);
@@ -232,8 +211,7 @@
         });
     }
 
-    // ── Декларативная разметка: data-confirm="Сообщение?" ──
-    // Автоматически перехватывает submit формы/клик по ссылке, показывает confirm.
+    // data-confirm на форме/кнопке — перехват submit с показом confirm
     document.addEventListener('submit', (e) => {
         const form = e.target;
         if (!(form instanceof HTMLFormElement)) return;
@@ -246,7 +224,6 @@
         }).then(ok => {
             if (ok) {
                 form.dataset.confirmOk = '1';
-                // requestSubmit() запускает событие submit → scrollY/focus сохранятся.
                 if (typeof form.requestSubmit === 'function') {
                     form.requestSubmit();
                 } else {
@@ -256,7 +233,7 @@
         });
     }, true);
 
-    // Также поддержать data-confirm на кнопке внутри формы (через submitter)
+    // data-confirm на submit-кнопке внутри формы
     document.addEventListener('click', (e) => {
         const btn = e.target.closest('button[type="submit"][data-confirm]');
         if (!btn) return;
@@ -264,7 +241,7 @@
         if (form) form.__confirmTrigger = btn;
     }, true);
 
-    // ── CSRF-токен из meta-тега ─────────────────────────────
+    // ── CSRF ───────────────────────────────────────────────
     function csrfToken() {
         return document.querySelector('meta[name="csrf-token"]')?.content || '';
     }
@@ -288,24 +265,13 @@
         setTimeout(() => {
             t.classList.remove('is-shown');
             t.addEventListener('transitionend', () => t.remove(), { once: true });
-            // fallback на случай, если transitionend не сработает
             setTimeout(() => { if (t.parentNode) t.remove(); }, 600);
         }, timeout);
     }
 
-    // ── Auto-submit фильтров (универсальный) ────────────────
-    // Любой <form data-auto-filter> подписывается на change/input всех
-    // своих полей и сабмитит форму. Текстовые поля — с debounce 500мс.
-    // select / checkbox / radio / date — мгновенно по change.
-    //
-    // Почему 500мс:
-    //   • Это server-rendered приложение, каждый submit = полный reload —
-    //     реакция дороже, чем у AJAX-instant-search (Algolia рекомендует
-    //     100-300мс для AJAX, а Baymard — 500мс для reload-сценария).
-    //   • Кириллический ввод медленнее английского, средняя пауза между
-    //     символами 250-400мс. 500мс надёжно покрывает паузы между
-    //     нажатиями, но не похоже на «зависло».
-    //   • Enter-фолбэк ниже даёт мгновенный submit нетерпеливым.
+    // ── Auto-submit фильтров ────────────────────────────────
+    // <form data-auto-filter>: текстовые поля — debounce 500мс,
+    // select/checkbox/radio — мгновенно, Enter — мгновенно.
     const FILTER_DEBOUNCE_MS = 500;
 
     function setupAutoFilter(form) {
@@ -313,21 +279,11 @@
         form.__autoFilterReady = true;
 
         const submit = () => {
-            // Не сабмитим, если страница уже уходит
             if (form.__submitting) return;
             form.__submitting = true;
-            // requestSubmit() vs submit():
-            //   form.submit() — программный submit, который НЕ запускает
-            //     событие 'submit'. Это ломает наши обработчики сохранения
-            //     scrollY/focus, повешенные на это событие.
-            //   form.requestSubmit() — современный API (Chrome 76+, FF 75+,
-            //     Safari 16+), эквивалентен клику submit-кнопки: запускает
-            //     событие, прогоняет валидацию, потом отправляет форму.
             if (typeof form.requestSubmit === 'function') {
                 form.requestSubmit();
             } else {
-                // Фолбэк для очень старых браузеров: вручную диспатчим
-                // событие, потом сабмитим напрямую.
                 form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
                 form.submit();
             }
@@ -337,31 +293,23 @@
         form.addEventListener('input', (e) => {
             const el = e.target;
             if (!el || el.disabled) return;
-            // input в текстовых/числовых/дата-полях — debounce
-            const tag = el.tagName;
             const type = (el.type || '').toLowerCase();
-            if (tag === 'INPUT' && (type === 'text' || type === 'search' || type === 'number')) {
+            if (el.tagName === 'INPUT' && (type === 'text' || type === 'search' || type === 'number')) {
                 submitDebounced();
             }
         });
         form.addEventListener('change', (e) => {
             const el = e.target;
             if (!el || el.disabled) return;
-            const tag = el.tagName;
             const type = (el.type || '').toLowerCase();
-            // select / checkbox / radio — мгновенно
-            if (tag === 'SELECT' || type === 'checkbox' || type === 'radio') {
+            if (el.tagName === 'SELECT' || type === 'checkbox' || type === 'radio') {
                 submit();
             }
-            // date — НЕ слушаем change: нативный пикер Windows генерирует
-            // его при навигации по месяцам/годам, до выбора конкретного дня.
-            // Сабмит даты — через Enter или кнопку формы.
+            // date: не слушаем change — пикер Windows генерирует его при навигации
         });
-        // Enter в текстовом поле — мгновенный сабмит без ожидания debounce
         form.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
-                const el = e.target;
-                const type = (el.type || '').toLowerCase();
+                const type = (e.target.type || '').toLowerCase();
                 if (type === 'text' || type === 'search' || type === 'number' || type === 'date') {
                     e.preventDefault();
                     submit();
@@ -374,17 +322,13 @@
         document.querySelectorAll('form[data-auto-filter]').forEach(setupAutoFilter);
     }
 
-    // Одиночный select/checkbox с [data-auto-submit-form] — сразу сабмитит
-    // свою ближайшую <form>. Используется для inline-редактирования
-    // (например, смена роли в users.php).
+    // [data-auto-submit-form]: auto-submit при change (напр. смена роли в users.php)
     function initAutoSubmitFields() {
         document.addEventListener('change', (e) => {
             const el = e.target;
             if (!el || !el.hasAttribute || !el.hasAttribute('data-auto-submit-form')) return;
             const form = el.closest('form');
             if (!form) return;
-            // requestSubmit() запускает событие submit, необходимое для
-            // сохранения scrollY/focus в обработчике app.js.
             if (typeof form.requestSubmit === 'function') {
                 form.requestSubmit();
             } else {
@@ -394,15 +338,12 @@
         });
     }
 
-    // ── Защита от двойного сабмита ─────────────────────────────
-    // После первого submit блокируем кнопки формы, чтобы повторный клик
-    // не создал дубликат записи. Сброс при навигации назад (pageshow).
+    // ── Защита от двойного сабмита ──────────────────────────
+    // Блокируем submit-кнопки после первого POST. Сброс при pageshow (back/forward).
     document.addEventListener('submit', (e) => {
         const form = e.target;
         if (!(form instanceof HTMLFormElement) || form.method.toUpperCase() !== 'POST') return;
-        // Не трогаем формы с data-auto-filter (они перезагружают страницу GET-ом)
         if (form.hasAttribute('data-auto-filter')) return;
-        // Небольшая задержка — чтобы submit успел улететь
         setTimeout(() => {
             form.querySelectorAll('button[type="submit"], input[type="submit"]').forEach(btn => {
                 btn.disabled = true;
@@ -416,27 +357,17 @@
         }
     });
 
-    // ── Сохранение/восстановление позиции скролла и фокуса при POST ─
-    // Сохраняем scrollY и активный input перед каждым сабмитом формы и
-    // восстанавливаем после загрузки той же страницы. Это критично для
-    // auto-filter форм: без восстановления фокуса каретка слетает с
-    // input[type=search] на страницу при каждой нажатой клавише после debounce.
-    // Ключ — pathname, чтобы не путать позиции разных страниц.
+    // ── Сохранение scrollY и фокуса при submit ─────────────
+    // Восстанавливает позицию и каретку после перезагрузки страницы.
     const SCROLL_KEY = 'scrollY:' + location.pathname;
     const FOCUS_KEY  = 'focus:'   + location.pathname;
     document.addEventListener('submit', () => {
-        // Если body заблокирован модалкой — реальный scrollY === 0,
-        // нужно использовать сохранённый scrollLockY.
         const y = scrollLockCount > 0 ? scrollLockY : window.scrollY;
         try { sessionStorage.setItem(SCROLL_KEY, String(y)); } catch (_) {}
 
-        // Сохраняем id активного элемента + позицию каретки.
-        // Если у элемента нет id — пропускаем (восстанавливать некуда).
         const a = document.activeElement;
         if (a && a.id && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) {
             const snap = { id: a.id };
-            // selectionStart/End доступны не на всех типах input (например, type=date),
-            // поэтому защищаемся try/catch.
             try {
                 if (a.selectionStart != null) {
                     snap.start = a.selectionStart;
@@ -446,7 +377,8 @@
             try { sessionStorage.setItem(FOCUS_KEY, JSON.stringify(snap)); } catch (_) {}
         }
     }, true);
-    window.addEventListener('DOMContentLoaded', () => {
+
+    function onReady() {
         try {
             const y = sessionStorage.getItem(SCROLL_KEY);
             if (y !== null) {
@@ -461,8 +393,6 @@
                 const snap = JSON.parse(raw);
                 const el = document.getElementById(snap.id);
                 if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
-                    // preventScroll — иначе focus() прокрутит страницу к input
-                    // и затрёт восстановленный scrollY выше.
                     el.focus({ preventScroll: true });
                     if (snap.start != null) {
                         try { el.setSelectionRange(snap.start, snap.end); } catch (_) {}
@@ -470,7 +400,6 @@
                 }
             }
         } catch (_) {}
-        // Flash-сообщения от сервера → toast
         const fd = document.getElementById('flash-data');
         if (fd && fd.dataset.msg) {
             toast(fd.dataset.msg, fd.dataset.type || 'success');
@@ -479,18 +408,11 @@
         initAutoFilters();
         initAutoSubmitFields();
         initFilterPersistence();
-    });
+    }
 
-    // ── Persistence фильтров для history/report ─────────────
-    //
-    // Best practice без редиректа: переписываем outgoing-ссылки на
-    // фильтр-зависимые страницы ДО того, как браузер начнёт навигацию.
-    // Браузер делает один HTTP-запрос сразу с нужными query-параметрами —
-    // никаких location.replace() и связанных с ними «белых вспышек».
-    //
-    // Список страниц, которые поддерживают persistence: жёстко зашит ниже
-    // (это map имя_файла → ключ_localStorage). Сами страницы декларируют
-    // себя через <meta name="filter-key" content="..."> в layout.php.
+    // ── Persistence фильтров ───────────────────────────────
+    // Переписываем href ссылок на фильтр-зависимые страницы,
+    // подставляя сохранённые параметры из localStorage.
     const FILTER_KEYS = {
         'history.php': 'history',
         'report.php':  'report',
@@ -498,9 +420,7 @@
     const STORAGE_PREFIX = 'filters:';
 
     function initFilterPersistence() {
-        // 1) SAVE: если текущая страница фильтр-зависимая И URL имеет search-параметры,
-        //    запоминаем их. Любой submit формы, клик по сортируемому заголовку и сама
-        //    пагинация сюда попадают — все они идут с параметризованным URL.
+        // Сохраняем текущие параметры фильтра
         const meta = document.querySelector('meta[name="filter-key"]');
         const currentKey = meta ? meta.content : null;
         if (currentKey && location.search) {
@@ -508,18 +428,12 @@
             try { localStorage.setItem(STORAGE_PREFIX + currentKey, params); } catch (_) {}
         }
 
-        // 2) REWRITE: переписываем href всех ссылок, ведущих на фильтр-зависимые
-        //    страницы, ДО клика. Браузер делает один запрос сразу с параметрами —
-        //    нет location.replace(), нет промежуточного белого экрана.
-        //
-        //    Делаем это и upfront (при загрузке — для надёжной поддержки middle-click,
-        //    Ctrl+click, контекстного меню), и при каждом click (для свежих значений
-        //    после сохранения новых фильтров на этой же странице без перезагрузки).
+        // Подставляем сохранённые параметры в ссылки
         function rewriteHref(a) {
             let url;
             try { url = new URL(a.href, location.href); } catch (_) { return; }
             if (url.origin !== location.origin) return;
-            if (url.search) return; // у ссылки уже есть параметры — явное намерение автора
+            if (url.search) return;
 
             const fname = url.pathname.split('/').pop();
             const key = FILTER_KEYS[fname];
@@ -532,12 +446,7 @@
             a.href = url.pathname + '?' + saved;
         }
 
-        // Upfront rewrite — один проход по всем подходящим ссылкам
         document.querySelectorAll('a[href]').forEach(rewriteHref);
-
-        // На случай если значения в localStorage изменились во время сессии
-        // (например, пользователь нажал "Сохранить" в форме, обновилось,
-        // потом кликнул в меню) — повторно переписываем при клике.
         document.addEventListener('click', (e) => {
             const a = e.target.closest('a[href]');
             if (a) rewriteHref(a);
@@ -559,4 +468,11 @@
         toast,
         setupAutoFilter,
     };
+
+    // Совместимость с Cloudflare Rocket Loader: если DOM уже готов — вызываем сразу.
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', onReady);
+    } else {
+        onReady();
+    }
 })();

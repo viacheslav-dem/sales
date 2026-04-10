@@ -1,14 +1,7 @@
 /**
  * Экран «Продажи за день».
- *
- * Модель:
- *   • Каждая продажа = отдельная операция со своим id (журнал, не сводка).
- *     За один день у одного товара может быть несколько строк по разным ценам.
- *   • salesMap ключуется по локальному key:
- *       - "s<id>"  — существующая продажа из БД
- *       - "n<seq>" — новая, ещё не сохранённая (id появится после save+reload)
- *   • Возвраты (returnsMap) ключуются по original_sale_id и оформляются
- *     только текущим днём (canReturn = true).
+ * salesMap: key "s<id>" (из БД) / "n<seq>" (новая) → данные продажи.
+ * returnsMap: original_sale_id → данные возврата.
  */
 (() => {
     'use strict';
@@ -27,10 +20,8 @@
     // ── State ───────────────────────────────────────────
     const PRODUCT_BY_ID = Object.fromEntries(ALL_PRODUCTS.map(p => [p.id, p]));
 
-    // Продажи: key -> {key, id|null, pid, name, basePrice, unit_price, qty}
     const salesMap = {};
-    // Снимок исходных значений (только для существующих) — чтобы посчитать дельту.
-    const ORIG_SALES = {}; // id -> {qty, unit_price}
+    const ORIG_SALES = {}; // снимок для dirty-check
     let newSeq = 0;
     const newKey = () => 'n' + (++newSeq);
     const idKey  = (id) => 's' + id;
@@ -51,9 +42,6 @@
             note: r.note || '',
             sold_at: r.sold_at || null,
         };
-        // Снимок исходных значений — заморожен, чтобы случайная мутация
-        // dirty-check'а через `ORIG_SALES[id].qty = …` падала в strict mode,
-        // а не молча ломала «отправлять только изменённое».
         ORIG_SALES[r.id] = Object.freeze({
             qty: r.qty,
             unit_price: r.unit_price,
@@ -61,30 +49,19 @@
             note: r.note || '',
         });
     });
-    // Помним id, которые удалили локально, чтобы отправить их в `deleted[]`.
-    const DELETED_IDS = new Set();
-
-    // Возвраты: origId -> {origId, pid, name, origDate, basePrice, unitPrice, qty, maxQty}
-    // maxQty = origQty - (returned по другим дням); сегодняшний возврат входит в этот лимит.
+    const DELETED_IDS = new Set(); // id продаж, удалённых локально
     const returnsMap = {};
     const ORIG_RETURNS = {};
-
-    // Справочник возвратопригодных продаж (origId -> info).
-    //   cap = максимум, который можно вернуть сегодня (origQty − возвраты других дней).
-    //   remaining (динамический) = cap − qty в returnsMap.
-    const RETURNABLE_BY_ID = {};
+    const RETURNABLE_BY_ID = {}; // origId → info, cap = макс. доступное к возврату
 
     RETURNABLE_INIT.forEach(r => {
-        // server.remaining = origQty − ВСЕ возвраты (включая сегодняшний).
-        // На момент инициализации сегодняшнего возврата ещё нет в returnsMap,
-        // но он может уже существовать в БД — добавим его qty ниже.
         RETURNABLE_BY_ID[r.orig_id] = {
             origId:    r.orig_id,
             pid:       r.pid,
             name:      r.name,
             origDate:  r.orig_date,
             origQty:   r.orig_qty,
-            cap:       r.remaining, // временно; пересчитаем после загрузки returns
+            cap:       r.remaining,
             basePrice: r.base_price,
             unitPrice: r.unit_price,
         };
@@ -93,8 +70,6 @@
     BOOT.returns.forEach(r => {
         let info = RETURNABLE_BY_ID[r.orig_id];
         if (!info) {
-            // Возврат уже есть, но исходная продажа не вошла в returnable
-            // (например, исходная qty полностью «выбрана» этим самым возвратом).
             info = {
                 origId:    r.orig_id,
                 pid:       r.pid,
@@ -107,7 +82,7 @@
             };
             RETURNABLE_BY_ID[r.orig_id] = info;
         }
-        // Поднимаем cap, чтобы он включал текущий сегодняшний возврат
+        // Включить сегодняшний возврат в cap
         info.cap += r.qty;
         returnsMap[r.orig_id] = {
             origId:    r.orig_id,
@@ -171,12 +146,11 @@
     };
     const fmtTime = (ts) => {
         if (!ts) return '';
-        // ts формата 'YYYY-MM-DD HH:MM:SS'
+        // 'YYYY-MM-DD HH:MM:SS' → 'HH:MM'
         const m = ts.match(/(\d{2}):(\d{2})/);
         return m ? `${m[1]}:${m[2]}` : '';
     };
     const round2 = (v) => Math.round(v * 100) / 100;
-    // Денежное сравнение «равно ли с точностью до копейки»
     const moneyEq = (a, b) => Math.round(a * 100) === Math.round(b * 100);
 
     const PAYMENT_LABELS = { cash: 'Наличные', card: 'Карта', other: 'Другое' };
@@ -186,8 +160,7 @@
         other: 'Другое (например, оплата при заказе)',
     };
 
-    // Делит длинное имя товара на «заголовок» и «комплектацию» по первой скобке.
-    // Поведение совпадает с PHP-функцией split_product_name() в helpers.php.
+    // Аналог PHP split_product_name(): делит по первой скобке.
     function splitProductName(name) {
         name = (name || '').trim();
         const pos = name.indexOf('(');
@@ -227,131 +200,115 @@
     }
 
     // ── Рендер строки таблицы ───────────────────────────
+    function buildSaleRow(tr, sale, idx) {
+        const sum = round2(sale.unit_price * sale.qty);
+        const discount = sale.discount; // суммарная скидка по строке (явное поле)
+        const discCls = discount > 0.005 ? 'is-discount' : (discount < -0.005 ? 'is-markup' : 'is-zero');
+        const timeLabel = fmtTime(sale.sold_at);
+        const timeCell = timeLabel
+            ? `<span class="row-time">${timeLabel}</span>`
+            : '<span class="text-faint">—</span>';
+        const nameHtml = productNameHtml(sale.name);
+        tr.dataset.kind = 'sale';
+        tr.dataset.skey = sale.key;
+        tr.innerHTML = `
+            <td class="row-idx">${idx + 1}</td>
+            <td class="col-time">${timeCell}</td>
+            <td class="row-name">${nameHtml}</td>
+            <td class="num row-price">${fmt(sale.basePrice)}</td>
+            <td class="num">
+                <input type="number" class="uprice-input${sale.unit_price === 0 ? ' is-zero' : ''}"
+                       value="${sale.unit_price.toFixed(2)}"
+                       min="0" step="0.01"
+                       aria-label="Цена за единицу" title="${sale.unit_price === 0 ? 'Цена 0 — продажа «бесплатно»' : ''}"
+                       data-action="set-uprice">
+            </td>
+            <td class="num row-disc ${discCls}">
+                <input type="number" class="disc-input" value="${discount.toFixed(2)}"
+                       step="0.01" aria-label="Скидка на строку" data-action="set-discount">
+            </td>
+            <td class="num">
+                <div class="qty-stepper">
+                    <button type="button" class="stepper-btn stepper-minus" data-action="qty-delta" data-delta="-1" aria-label="Уменьшить">${svg('minus', 16)}</button>
+                    <input type="number" class="qty-input" value="${sale.qty}" min="0" aria-label="Количество" data-action="set-qty">
+                    <button type="button" class="stepper-btn" data-action="qty-delta" data-delta="1" aria-label="Увеличить">${svg('plus', 16)}</button>
+                </div>
+            </td>
+            <td class="num row-sum">${fmt(sum)}</td>
+            <td class="col-pay">
+                <select class="pay-select pay-select--${sale.payment}" aria-label="Способ оплаты"
+                        data-action="set-payment" title="${PAYMENT_TITLES[sale.payment]}">
+                    ${['cash','card','other'].map(m => `
+                        <option value="${m}"${sale.payment === m ? ' selected' : ''}>${PAYMENT_LABELS[m]}</option>
+                    `).join('')}
+                </select>
+            </td>
+            <td class="col-note">
+                <input type="text" class="note-input" value="${escHtml(sale.note || '')}"
+                       maxlength="500" placeholder="—" aria-label="Заметка" data-action="set-note">
+            </td>
+            <td class="row-act">
+                <button type="button" class="remove-btn" data-action="remove" aria-label="Удалить позицию" title="Удалить">${svg('x', 14)}</button>
+            </td>`;
+    }
+
+    function buildReturnRow(tr, ret, idx) {
+        const sum = ret.unitPrice * ret.qty;
+        const discount = ret.basePrice - ret.unitPrice;
+        tr.dataset.kind = 'return';
+        tr.dataset.orig = ret.origId;
+        tr.classList.add('is-return-row');
+        const parts = splitProductName(ret.name);
+        const meta = parts.meta
+            ? `<span class="product-name__meta">${escHtml(parts.meta)}</span>`
+            : '';
+        const nameHtml = `
+            <span class="product-name__main">${escHtml(parts.main)}
+                <span class="badge badge-warning badge-inline">возврат</span>
+            </span>
+            ${meta}
+            <span class="product-name__meta">из продажи от ${fmtDateRu(ret.origDate)} (${ret.origQty}&nbsp;шт.)</span>`;
+        const retTime = fmtTime(ret.sold_at);
+        const retTimeCell = retTime
+            ? `<span class="row-time">${retTime}</span>`
+            : '<span class="text-faint">—</span>';
+        tr.innerHTML = `
+            <td class="row-idx">${idx + 1}</td>
+            <td class="col-time">${retTimeCell}</td>
+            <td class="row-name">${nameHtml}</td>
+            <td class="num row-price">${fmt(ret.basePrice)}</td>
+            <td class="num">${fmt(ret.unitPrice)}</td>
+            <td class="num row-disc ${discountClass(discount * ret.qty)}">${discountText(discount * ret.qty)}</td>
+            <td class="num">
+                <div class="qty-stepper">
+                    <button type="button" class="stepper-btn stepper-minus" data-action="qty-delta" data-delta="-1" aria-label="Уменьшить">${svg('minus', 16)}</button>
+                    <input type="number" class="qty-input" value="${ret.qty}" min="0" max="${capFor(ret.origId)}" aria-label="Количество" data-action="set-qty">
+                    <button type="button" class="stepper-btn" data-action="qty-delta" data-delta="1" aria-label="Увеличить">${svg('plus', 16)}</button>
+                </div>
+            </td>
+            <td class="num row-sum">−${fmt(sum)}</td>
+            <td class="col-pay text-faint" colspan="2"><em>возврат тем же способом оплаты</em></td>
+            <td class="row-act">
+                <button type="button" class="remove-btn" data-action="remove" aria-label="Удалить позицию" title="Удалить">${svg('x', 14)}</button>
+            </td>`;
+    }
+
     function buildRow(entry, idx) {
         const tr = document.createElement('tr');
         tr.dataset.key = entry.key;
         tr.id = 'row-' + entry.key;
-
-        if (entry.kind === 'sale') {
-            const s = entry.ref;
-            const sum = round2(s.unit_price * s.qty);
-            const discount = s.discount; // суммарная скидка по строке (явное поле)
-            const discCls = discount > 0.005 ? 'is-discount' : (discount < -0.005 ? 'is-markup' : 'is-zero');
-            const timeLabel = fmtTime(s.sold_at);
-            const timeCell = timeLabel
-                ? `<span class="row-time">${timeLabel}</span>`
-                : '<span class="text-faint">—</span>';
-            const nameHtml = productNameHtml(s.name);
-            tr.dataset.kind = 'sale';
-            tr.dataset.skey = s.key;
-            tr.innerHTML = `
-                <td class="row-idx">${idx + 1}</td>
-                <td class="col-time">${timeCell}</td>
-                <td class="row-name">${nameHtml}</td>
-                <td class="num row-price">${fmt(s.basePrice)}</td>
-                <td class="num">
-                    <input type="number" class="uprice-input${s.unit_price === 0 ? ' is-zero' : ''}"
-                           value="${s.unit_price.toFixed(2)}"
-                           min="0" step="0.01"
-                           aria-label="Цена за единицу" title="${s.unit_price === 0 ? 'Цена 0 — продажа «бесплатно»' : ''}"
-                           data-action="set-uprice">
-                </td>
-                <td class="num row-disc ${discCls}">
-                    <input type="number" class="disc-input" value="${discount.toFixed(2)}"
-                           step="0.01" aria-label="Скидка на строку" data-action="set-discount">
-                </td>
-                <td class="num">
-                    <div class="qty-stepper">
-                        <button type="button" class="stepper-btn stepper-minus" data-action="qty-delta" data-delta="-1" aria-label="Уменьшить">${svg('minus', 16)}</button>
-                        <input type="number" class="qty-input" value="${s.qty}" min="0" aria-label="Количество" data-action="set-qty">
-                        <button type="button" class="stepper-btn" data-action="qty-delta" data-delta="1" aria-label="Увеличить">${svg('plus', 16)}</button>
-                    </div>
-                </td>
-                <td class="num row-sum">${fmt(sum)}</td>
-                <td class="col-pay">
-                    <select class="pay-select pay-select--${s.payment}" aria-label="Способ оплаты"
-                            data-action="set-payment" title="${PAYMENT_TITLES[s.payment]}">
-                        ${['cash','card','other'].map(m => `
-                            <option value="${m}"${s.payment === m ? ' selected' : ''}>${PAYMENT_LABELS[m]}</option>
-                        `).join('')}
-                    </select>
-                </td>
-                <td class="col-note">
-                    <input type="text" class="note-input" value="${escHtml(s.note || '')}"
-                           maxlength="500" placeholder="—" aria-label="Заметка" data-action="set-note">
-                </td>
-                <td class="row-act">
-                    <button type="button" class="remove-btn" data-action="remove" aria-label="Удалить позицию" title="Удалить">${svg('x', 14)}</button>
-                </td>`;
-        } else {
-            const r = entry.ref;
-            const sum = r.unitPrice * r.qty;
-            const discount = r.basePrice - r.unitPrice;
-            tr.dataset.kind = 'return';
-            tr.dataset.orig = r.origId;
-            tr.classList.add('is-return-row');
-            const partsR = splitProductName(r.name);
-            const metaR = partsR.meta
-                ? `<span class="product-name__meta">${escHtml(partsR.meta)}</span>`
-                : '';
-            const nameHtml = `
-                <span class="product-name__main">${escHtml(partsR.main)}
-                    <span class="badge badge-warning badge-inline">возврат</span>
-                </span>
-                ${metaR}
-                <span class="product-name__meta">из продажи от ${fmtDateRu(r.origDate)} (${r.origQty}&nbsp;шт.)</span>`;
-            const retTime = fmtTime(r.sold_at);
-            const retTimeCell = retTime
-                ? `<span class="row-time">${retTime}</span>`
-                : '<span class="text-faint">—</span>';
-            tr.innerHTML = `
-                <td class="row-idx">${idx + 1}</td>
-                <td class="col-time">${retTimeCell}</td>
-                <td class="row-name">${nameHtml}</td>
-                <td class="num row-price">${fmt(r.basePrice)}</td>
-                <td class="num">${fmt(r.unitPrice)}</td>
-                <td class="num row-disc ${discountClass(discount * r.qty)}">${discountText(discount * r.qty)}</td>
-                <td class="num">
-                    <div class="qty-stepper">
-                        <button type="button" class="stepper-btn stepper-minus" data-action="qty-delta" data-delta="-1" aria-label="Уменьшить">${svg('minus', 16)}</button>
-                        <input type="number" class="qty-input" value="${r.qty}" min="0" max="${capFor(r.origId)}" aria-label="Количество" data-action="set-qty">
-                        <button type="button" class="stepper-btn" data-action="qty-delta" data-delta="1" aria-label="Увеличить">${svg('plus', 16)}</button>
-                    </div>
-                </td>
-                <td class="num row-sum">−${fmt(sum)}</td>
-                <td class="col-pay text-faint" colspan="2"><em>возврат тем же способом оплаты</em></td>
-                <td class="row-act">
-                    <button type="button" class="remove-btn" data-action="remove" aria-label="Удалить позицию" title="Удалить">${svg('x', 14)}</button>
-                </td>`;
-        }
+        if (entry.kind === 'sale') buildSaleRow(tr, entry.ref, idx);
+        else buildReturnRow(tr, entry.ref, idx);
         return tr;
     }
 
     // ── DOM-обновления ──────────────────────────────────
-    //
-    // Архитектура:
-    //   render()           — полный rebuild, вызывается ОДИН раз при загрузке
-    //   insertRowDom()     — вставить новую строку в нужное место по сортировке
-    //   removeRowDom()     — убрать строку
-    //   softUpdateSaleRow  — обновить значения в существующей строке продажи
-    //   softUpdateReturnRow— обновить значения в существующей строке возврата
-    //   reindexRows()      — пересчитать номера в колонке #
-    //   updateBadge()      — счётчик позиций в шапке
-    //   updateEmptyState() — переключить «нет данных» ↔ таблица
-    //   renderTotals()     — футер и итоги-бар
-    //
-    // У всех мутаций есть явный список зависимостей, что обновлять.
-    // Это даёт почти такое же поведение, как Angular signals,
-    // без машинерии (track/effect/scheduler).
 
     function render() {
         const items = allItems();
         tbody.textContent = '';
         items.forEach((entry, idx) => tbody.appendChild(buildRow(entry, idx)));
-        updateEmptyState();
-        updateBadge();
-        renderTotals();
-        updateModalAddedInfo();
+        refreshUI();
     }
 
     function updateEmptyState() {
@@ -374,6 +331,14 @@
         });
     }
 
+    function refreshUI() {
+        reindexRows();
+        updateEmptyState();
+        updateBadge();
+        renderTotals();
+        updateModalAddedInfo();
+    }
+
     // Вставить новую строку в правильную позицию (сортировка из allItems()).
     function insertRowDom(entry) {
         const items = allItems();
@@ -390,15 +355,11 @@
         if (tr) tr.remove();
     }
 
-    // Селектор data-key содержит ':' (например 'r:42'), его нужно экранировать.
     function cssEsc(s) {
         return (window.CSS && CSS.escape) ? CSS.escape(s) : String(s).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
     }
 
     function renderTotals() {
-        // Считаем продажи и возвраты раздельно: в строках суммы положительные,
-        // знак минус появляется только в тех строках футера, которые арифметически
-        // вычитаются (возвраты) — там это означает «отняли», а не «продали в минус».
         let salesQty = 0, salesSum = 0, salesDisc = 0, salesBase = 0;
         Object.values(salesMap).forEach(i => {
             salesQty  += i.qty;
@@ -453,13 +414,8 @@
         }
     }
 
-    // ── Mutations: продажи (по локальному key) ──────────
-    //
-    // Инвариант: discount = qty * basePrice − qty * unit_price
-    // Изменение цены → пересчёт скидки.
-    // Изменение скидки → пересчёт цены.
-    // Изменение qty   → пересчёт скидки (цена за штуку фиксируется).
-    //
+    // ── Mutations: продажи ────────────────────────────────
+    // discount = qty * basePrice − qty * unit_price
     function recalcDiscountFromPrice(s) {
         s.discount = round2(s.qty * s.basePrice - s.qty * s.unit_price);
     }
@@ -469,9 +425,7 @@
         s.unit_price = Math.max(0, round2(up));
     }
 
-    // Точечное обновление строки, чтобы не пересоздавать <tbody> и не сбивать
-    // фокус с активного инпута. Параметр `skipField` указывает, какой инпут
-    // НЕ нужно перезаписывать (тот, в который пользователь сейчас печатает).
+    // Точечное обновление строки без пересоздания DOM. skipField — поле, которое не трогать.
     function softUpdateSaleRow(key, skipField) {
         const s = salesMap[key]; if (!s) return;
         const tr = tbody.querySelector(`tr[data-key="${cssEsc(key)}"]`);
@@ -506,7 +460,7 @@
         renderTotals();
     }
 
-    // Точечное обновление строки возврата (qty, sum, disc).
+    // Точечное обновление строки возврата.
     function softUpdateReturnRow(origId, skipField) {
         const r = returnsMap[origId]; if (!r) return;
         const tr = tbody.querySelector(`tr[data-key="${cssEsc('r:' + origId)}"]`);
@@ -561,12 +515,9 @@
         const d = parseFloat(val);
         s.discount = isFinite(d) ? round2(d) : 0;
         recalcPriceFromDiscount(s);
-        // После пересчёта цены может «съехать» из-за округления → подтягиваем скидку,
-        // но только если поле сейчас не редактируется (иначе перебьём ввод пользователя).
+        // Подтягиваем скидку после округления цены; если разница мала — оставляем ввод
         const stash = s.discount;
         recalcDiscountFromPrice(s);
-        // Если разница появилась после округления цены — оставляем то, что ввёл пользователь,
-        // окончательная нормализация произойдёт на blur/save.
         if (Math.abs(s.discount - stash) > 0.005) s.discount = stash;
         softUpdateSaleRow(key, 'disc');
         markDirty();
@@ -575,7 +526,7 @@
         const s = salesMap[key]; if (!s) return;
         if (!['cash', 'card', 'other'].includes(payment)) return;
         s.payment = payment;
-        // Обновляем класс цвета на самом select, без полного render()
+        // Обновляем класс цвета на select
         const tr = tbody.querySelector(`tr[data-skey="${key}"]`);
         const sel = tr && tr.querySelector('.pay-select');
         if (sel) {
@@ -588,7 +539,6 @@
     function setSaleNote(key, text) {
         const s = salesMap[key]; if (!s) return;
         s.note = (text || '').slice(0, 500);
-        // Не вызываем render() — input уже содержит текст, перерисовка только сбила бы фокус.
         markDirty();
     }
     function addSale(pid) {
@@ -608,16 +558,11 @@
             sold_at: null,
         };
         insertRowDom({ kind: 'sale', key, ref: salesMap[key] });
-        reindexRows();
-        updateEmptyState();
-        updateBadge();
-        renderTotals();
-        updateModalAddedInfo();
+        refreshUI();
         pushUndo({ type: 'add-sale', key });
         markDirty();
     }
-    // Удаление сохранённой продажи — с подтверждением (защита от случайного клика
-    // и от «обнулил qty в инпуте». Черновики удаляются молча.
+    // Удаление: сохранённые — с подтверждением, черновики — молча.
     function removeSale(key) {
         const s = salesMap[key]; if (!s) return;
         if (s.id) {
@@ -634,16 +579,11 @@
     }
     function doRemoveSale(key) {
         const s = salesMap[key]; if (!s) return;
-        // Снимок до удаления — для undo. Сохраняем перед мутацией.
         pushUndo({ type: 'remove-sale', key, snapshot: { ...s } });
         if (s.id) DELETED_IDS.add(s.id);
         delete salesMap[key];
         removeRowDom(key);
-        reindexRows();
-        updateEmptyState();
-        updateBadge();
-        renderTotals();
-        updateModalAddedInfo();
+        refreshUI();
         markDirty();
     }
 
@@ -663,10 +603,7 @@
             qty: 1,
         };
         insertRowDom({ kind: 'return', key: 'r:' + origId, ref: returnsMap[origId] });
-        reindexRows();
-        updateEmptyState();
-        updateBadge();
-        renderTotals();
+        refreshUI();
         refreshReturnModalRow(origId);
         pushUndo({ type: 'add-return', origId });
         markDirty();
@@ -694,7 +631,6 @@
     }
     function removeReturn(origId) {
         const r = returnsMap[origId]; if (!r) return;
-        // Если возврат уже был сохранён (есть в ORIG_RETURNS) — переспросить.
         if (ORIG_RETURNS[origId]) {
             confirmDialog(`Удалить возврат «${r.name}» (${r.qty} шт.)?`, {
                 okLabel:     'Удалить',
@@ -712,10 +648,7 @@
         pushUndo({ type: 'remove-return', origId, snapshot: { ...r } });
         delete returnsMap[origId];
         removeRowDom('r:' + origId);
-        reindexRows();
-        updateEmptyState();
-        updateBadge();
-        renderTotals();
+        refreshUI();
         refreshReturnModalRow(origId);
         markDirty();
     }
@@ -739,7 +672,6 @@
             else if (action === 'remove') removeReturn(orig);
         }
     });
-    // change — для <select> способа оплаты
     tbody.addEventListener('change', (e) => {
         if (!CAN_EDIT) return;
         const t = e.target;
@@ -748,9 +680,6 @@
         if (tr.dataset.kind !== 'sale') return;
         setSalePayment(tr.dataset.skey, t.value);
     });
-    // input — перерисовка ячеек, которые зависят от значения. Для текстовой
-    // заметки render() не вызываем (сбило бы фокус ввода) — обновление состояния
-    // достаточно для последующего save.
     tbody.addEventListener('input', (e) => {
         if (!CAN_EDIT) return;
         const t = e.target;
@@ -758,10 +687,6 @@
         const kind = tr.dataset.kind;
         if (kind === 'sale') {
             const skey = tr.dataset.skey;
-            // Защита от промежуточных NaN: пока пользователь набирает число,
-            // инпут может содержать '-', '' или '.', которые дают NaN при +val.
-            // Такие состояния игнорируем — обработка произойдёт на blur или
-            // когда появится валидное число.
             if (t.matches('.qty-input')) {
                 const v = +t.value;
                 if (!isNaN(v)) setSaleQty(skey, v);
@@ -782,9 +707,6 @@
     });
 
     // ── Модалка продажи ─────────────────────────────────
-    // Модель «журнал операций»: каждый клик = новая отдельная продажа.
-    // Если того же товара уже есть продажи в этом дне, под товаром
-    // показывается подсказка с их количеством.
     function openSalesModal() {
         modalTitle.textContent = 'Добавить продажу';
         modalSearch.value = '';
@@ -989,30 +911,18 @@
     // ════════════════════════════════════════════════════════
     //                    AUTOSAVE QUEUE
     // ════════════════════════════════════════════════════════
-    //
-    // После любой мутации зовём scheduleSave() — оно дебаунсит запросы.
-    // Через DEBOUNCE_MS после последней мутации шлём батч на сервер.
-    // Если запрос в полёте — следующий стартует только после ответа.
-    // Если сеть отвалилась — ретраим с экспоненциальной задержкой.
-    //
-    // Дельта вычисляется по одному принципу: текущий state vs ORIG_SALES/ORIG_RETURNS.
-    // После успеха ORIG_* обновляются, чтобы повторный flush ничего не слал.
-
-    // Дебаунс автосохранения. Подобран так, чтобы:
-    //  • продавец напечатал короткую цену/qty/заметку и всё ушло одним батчем;
-    //  • после остановки активности «✓ Сохранено» появлялось без долгого ожидания.
-    // Типичные autosave-приложения живут в диапазоне 1500–2000 мс.
+    // Дебаунс → батч на сервер. Ретрай при сетевых ошибках, стоп при фатальных.
     const DEBOUNCE_MS  = 2000;
     const RETRY_MS     = 5000;
-    const REQUEST_TO   = 20000;  // 20s — после этого считаем «нет связи»
+    const REQUEST_TO   = 20000;
     const CSRF         = document.querySelector('meta[name="csrf-token"]')?.content || '';
     const SAVE_DATE    = BOOT.selDate;
 
     let pendingTimer  = null;
     let inFlight      = false;
-    let dirty         = false;     // в очереди есть несохранённые изменения
-    let networkError  = false;     // последний запрос — сетевая ошибка (можно ретраить)
-    let fatalError    = '';        // фатальная ошибка (4xx, сессия истекла) — НЕ ретраим
+    let dirty         = false;
+    let networkError  = false;
+    let fatalError    = '';
 
     let statusEverShown = false;
 
@@ -1026,8 +936,7 @@
 
     function refreshStatus() {
         if (!CAN_EDIT || !saveStatusEl) return;
-        // До первой мутации статус скрыт — на свежезагруженной странице
-        // зелёное «Сохранено» не имеет смысла.
+        // До первой мутации статус скрыт
         if (!statusEverShown && !dirty && !inFlight && !networkError && !fatalError) {
             saveStatusEl.hidden = true;
             return;
@@ -1044,9 +953,6 @@
         if (!CAN_EDIT) return;
         dirty = true;
         refreshStatus();
-        // При фатальной ошибке (истёкшая сессия и т.п.) очередь
-        // остановлена до перезагрузки страницы — таймер бесполезен
-        // и только засоряет event loop при каждом нажатии клавиши.
         if (fatalError) return;
         scheduleSave();
     }
@@ -1056,7 +962,7 @@
         pendingTimer = setTimeout(flushQueue, DEBOUNCE_MS);
     }
 
-    // Собирает payload из текущего состояния (только дельта).
+    // Собирает дельту: текущее состояние vs ORIG_*
     function buildPayload() {
         const ops = [];
         Object.values(salesMap).forEach(s => {
@@ -1099,26 +1005,12 @@
         return { date: SAVE_DATE, ops, deleted, returns };
     }
 
-    // Делать ли запрос вообще? Может быть так, что dirty=true,
-    // но дельта пустая (например, изменили qty туда-обратно).
     function payloadIsEmpty(p) {
         return p.ops.length === 0 && p.deleted.length === 0
             && Object.keys(p.returns).length === 0;
     }
 
-    /**
-     * Классификация ошибок:
-     *   { kind: 'transient', message } — сеть/таймаут/5xx → можно ретраить
-     *   { kind: 'fatal',     message } — потеря сессии, 4xx, 403 → НЕ ретраим
-     *
-     * Как «теряется» сессия в нашем проекте:
-     *   • cookie живёт пока браузер открыт (lifetime=0 в auth.php), но
-     *   • файл сессии на сервере удаляется PHP GC после ~24 минут простоя
-     *     (session.gc_maxlifetime по умолчанию). После этого require_login()
-     *     делает 302 → login.php. fetch следует за редиректом и получает HTML —
-     *     resp.json() падает SyntaxError. Это и есть сигнал «потеряли сессию».
-     *   • 419 (CSRF mismatch) — отдельный случай, daily_save.php возвращает его сам.
-     */
+    // Ошибки: transient (сеть/5xx → retry) или fatal (4xx/сессия → стоп).
     async function performRequest(payload) {
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), REQUEST_TO);
@@ -1137,7 +1029,6 @@
             });
         } catch (err) {
             clearTimeout(timer);
-            // AbortError = наш таймаут, всё остальное = сеть/CORS/etc
             const isTimeout = err && err.name === 'AbortError';
             throw {
                 kind: 'transient',
@@ -1146,8 +1037,6 @@
         }
         clearTimeout(timer);
 
-        // 419 — daily_save.php возвращает явно при несовпадении CSRF.
-        // Бывает при потере сессии (старый токен на свежей сессии).
         if (resp.status === 419) {
             throw { kind: 'fatal', message: 'Нужно войти заново' };
         }
@@ -1159,8 +1048,7 @@
         try {
             data = await resp.json();
         } catch (_) {
-            // Не JSON — на 99% HTML страницы логина после редиректа require_login().
-            // Реже: WAF/proxy вернул HTML-ошибку, что для нас функционально то же самое.
+            // Не JSON → скорее всего редирект на login.php
             throw { kind: 'fatal', message: 'Нужно войти заново' };
         }
 
@@ -1193,8 +1081,6 @@
             return;
         }
 
-        // Снимок того, что отправляем — нужен, чтобы после успеха
-        // обновить ORIG_* (и не «потерять» правки, прилетевшие во время запроса).
         const sentSnapshot = snapshotCurrent();
 
         inFlight = true;
@@ -1202,17 +1088,13 @@
         try {
             const data = await performRequest(payload);
 
-            // Подмена локальных ключей на серверные id для новых продаж.
-            // Если за время полёта запроса пользователь успел удалить эту
-            // продажу — нужно «догнать» удаление на сервере, иначе в БД
-            // останется призрачная запись.
+            // Подмена локальных ключей на серверные id
             if (data.id_map) {
                 Object.entries(data.id_map).forEach(([localKey, newId]) => {
                     const s = salesMap[localKey];
                     if (s) {
                         s.id = newId;
-                        // Сервер присваивает sold_at в момент INSERT — подхватываем его,
-                        // чтобы в строке вместо прочерка появилось реальное время.
+                        // Подхватываем sold_at от сервера
                         const soldAt = data.times && data.times[localKey];
                         if (soldAt) {
                             s.sold_at = soldAt;
@@ -1225,18 +1107,13 @@
                                     : '<span class="text-faint">—</span>';
                             }
                         }
-                        // ВАЖНО: ключ объекта в salesMap менять не будем (это сломало бы DOM-привязку).
-                        // s.id теперь !== null — следующий buildPayload пошлёт UPDATE по id.
                     } else {
-                        // Запись удалена локально, пока летел INSERT.
-                        // Догоняем: помечаем серверный id на удаление,
-                        // следующий flushQueue отправит DELETE.
+                        // Удалено локально пока летел INSERT → догоняем DELETE
                         DELETED_IDS.add(newId);
                     }
                 });
             }
-            // Сервер присваивает sold_at при INSERT возврата — подхватываем,
-            // чтобы в строке вместо прочерка появилось реальное время.
+            // sold_at для возвратов
             if (data.ret_times) {
                 Object.entries(data.ret_times).forEach(([origId, soldAt]) => {
                     origId = Number(origId);
@@ -1257,7 +1134,6 @@
             commitSnapshot(sentSnapshot);
             networkError = false;
 
-            // Если за время запроса что-то ещё накопилось — флашим снова.
             const newPayload = buildPayload();
             dirty = !payloadIsEmpty(newPayload);
             refreshStatus();
@@ -1289,9 +1165,6 @@
         }
     }
 
-    // Снимок «что мы отправили серверу» — чтобы после успешного ответа
-    // обновить ORIG_SALES/ORIG_RETURNS только для отправленных значений
-    // и не затереть параллельные правки пользователя.
     function snapshotCurrent() {
         const sales = {};
         Object.values(salesMap).forEach(s => {
@@ -1303,9 +1176,6 @@
             };
         });
         const rets = {};
-        // Важно: включаем и origId из ORIG_RETURNS, иначе удалённый возврат
-        // (qty=0) не попадёт в снимок и ORIG_RETURNS не сбросится — buildPayload
-        // будет бесконечно слать ту же дельту.
         const allRetIds = new Set([
             ...Object.keys(returnsMap).map(Number),
             ...Object.keys(ORIG_RETURNS).map(Number),
@@ -1316,18 +1186,15 @@
     }
 
     function commitSnapshot(snap) {
-        // Продажи: для всех, что были в snap, обновляем ORIG_SALES по их новому id.
         Object.entries(snap.sales).forEach(([key, frozen]) => {
             const s = salesMap[key];
             if (!s || s.id == null) return;
             ORIG_SALES[s.id] = Object.freeze({ ...frozen });
         });
-        // Возвраты: то же самое
         Object.entries(snap.rets).forEach(([id, qty]) => {
             if (qty === 0) delete ORIG_RETURNS[id];
             else ORIG_RETURNS[id] = qty;
         });
-        // Удалённые: то, что было отправлено, можно вычеркнуть из DELETED_IDS
         snap.dels.forEach(id => {
             DELETED_IDS.delete(id);
             delete ORIG_SALES[id];
@@ -1337,18 +1204,11 @@
     // ════════════════════════════════════════════════════════
     //                       UNDO STACK
     // ════════════════════════════════════════════════════════
-    //
-    // Структурные операции (добавил/удалил продажу или возврат) кладутся
-    // в стек. Кнопка «Отменить» снимает верхнюю и применяет обратное действие.
-    // Изменения значений (qty/цена/скидка/заметка/оплата) в стек НЕ кладутся —
-    // вариант А по требованию.
-    //
-    // После undo нужный state применяется через те же мутации (addSale/removeSale/...),
-    // что автоматически триггерит markDirty() → autosave разошлёт изменения.
+    // Стек структурных операций (add/remove). Undo применяет обратное действие.
 
     const undoStack = [];
     const UNDO_LIMIT = 30;
-    let undoSuppress = false; // когда true — мутации не пишутся в стек
+    let undoSuppress = false;
 
     function pushUndo(entry) {
         if (undoSuppress) return;
@@ -1375,13 +1235,7 @@
                     if (salesMap[entry.key]) doRemoveSale(entry.key);
                     break;
                 case 'remove-sale': {
-                    // Откат удаления. Два сценария:
-                    //  (а) DELETE ещё в локальной очереди (id в DELETED_IDS, запрос
-                    //      ещё не отправлен) — снимаем из очереди, восстанавливаем как было.
-                    //  (б) Запрос с DELETE уже улетел (inFlight) или ушёл (commitSnapshot
-                    //      стёр id) — в БД записи может уже не быть, поэтому восстанавливаем
-                    //      как НОВУЮ продажу с новым локальным ключом и id=null.
-                    //      Сервер получит INSERT и создаст её заново.
+                    // Если DELETE ещё не отправлен — отменяем, иначе создаём как новую
                     const stillPendingDelete = entry.snapshot.id
                         && DELETED_IDS.has(entry.snapshot.id)
                         && !inFlight;
@@ -1394,11 +1248,7 @@
                         salesMap[k] = { ...entry.snapshot, key: k, id: null };
                         insertRowDom({ kind: 'sale', key: k, ref: salesMap[k] });
                     }
-                    reindexRows();
-                    updateEmptyState();
-                    updateBadge();
-                    renderTotals();
-                    updateModalAddedInfo();
+                    refreshUI();
                     markDirty();
                     break;
                 }
@@ -1408,10 +1258,7 @@
                 case 'remove-return':
                     returnsMap[entry.origId] = { ...entry.snapshot };
                     insertRowDom({ kind: 'return', key: 'r:' + entry.origId, ref: returnsMap[entry.origId] });
-                    reindexRows();
-                    updateEmptyState();
-                    updateBadge();
-                    renderTotals();
+                    refreshUI();
                     refreshReturnModalRow(entry.origId);
                     markDirty();
                     break;
@@ -1421,39 +1268,26 @@
         }
     }
 
-    // ════════════════════════════════════════════════════════
-    //                      ИНТЕГРАЦИЯ
-    // ════════════════════════════════════════════════════════
-
-    // Предупреждение при закрытии вкладки / обновлении страницы.
-    // По современной спецификации HTML достаточно вызвать preventDefault() —
-    // браузер сам покажет стандартный диалог «Покинуть страницу?».
-    // Свойство event.returnValue и return-строка из обработчика — legacy.
+    // ── Предупреждение при уходе со страницы ──────────────
     window.addEventListener('beforeunload', (e) => {
         if (CAN_EDIT && (dirty || inFlight) && !fatalError) {
             e.preventDefault();
         }
     });
 
-    // Перехват внутренней навигации (клики по ссылкам в шапке/боковой панели).
-    // beforeunload не показывает диалог, если переход — по <a href> внутри
-    // того же домена, поэтому делаем это сами: спрашиваем подтверждение,
-    // ждём фактической отправки очереди и только потом переходим.
+    // Перехват внутренней навигации: сохранить перед переходом
     document.addEventListener('click', (e) => {
         if (!CAN_EDIT) return;
         if (!dirty && !inFlight) return;
-        if (fatalError) return; // фатальная ошибка — пусть уходит, всё равно сломано
+        if (fatalError) return;
 
         const a = e.target.closest('a[href]');
         if (!a) return;
-        // Игнорируем якоря, новые вкладки, ссылки с download / mailto / target
         const href = a.getAttribute('href');
         if (!href || href.startsWith('#') || href.startsWith('mailto:')) return;
         if (a.target && a.target !== '_self') return;
         if (a.hasAttribute('download')) return;
-        // Модификаторы (Ctrl/⌘+click открывают новую вкладку — не блокируем)
         if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-        // Внешние ссылки
         try {
             const url = new URL(a.href, window.location.href);
             if (url.origin !== window.location.origin) return;
@@ -1465,23 +1299,16 @@
             { okLabel: 'Сохранить и перейти', cancelLabel: 'Остаться' }
         ).then(async ok => {
             if (!ok) return;
-            // Принудительный сброс очереди. Если таймер — отменяем; если запрос
-            // в полёте — ждём, пока inFlight снимется; затем последний flushQueue.
             if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
-            // Цикл ожидания не более REQUEST_TO + небольшой запас
             const deadline = Date.now() + REQUEST_TO + 2000;
             while (inFlight && Date.now() < deadline) {
                 await new Promise(r => setTimeout(r, 100));
             }
             if (inFlight) {
-                // Запрос так и не отвис → данные не сохранены, не уходим.
                 window.App?.toast?.('Сервер не отвечает. Переход отменён, данные не сохранены.', 'error');
                 return;
             }
             if (!fatalError) await flushQueue({ manual: true });
-            // После flushQueue убеждаемся, что всё реально ушло на сервер.
-            // Если осталась грязь / network / fatal — переход отменяем,
-            // иначе пользователь молча потеряет данные после клика «Сохранить и перейти».
             if (fatalError || networkError || dirty) {
                 window.App?.toast?.('Не удалось сохранить. Переход отменён.', 'error');
                 return;

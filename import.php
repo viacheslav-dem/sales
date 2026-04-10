@@ -88,11 +88,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do_import'])) {
             }
 
             $insertProductSql = "INSERT INTO products (name) VALUES (?)";
-            $upsertPriceSql   = <<<SQL
-                INSERT INTO product_prices (product_id, price, valid_from)
-                VALUES (?, ?, ?)
-                ON CONFLICT(product_id, valid_from) DO UPDATE SET price = excluded.price
-            SQL;
             // Импорт идёт по дневным агрегатам из Excel: на (товар, день) создаётся
             // одна сводная строка. Чтобы повторный запуск был идемпотентным, перед
             // вставкой удаляем все обычные продажи этого (товара, дня).
@@ -107,7 +102,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do_import'])) {
                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)";
 
             $insertProduct = $pdo->prepare($insertProductSql);
-            $upsertPrice   = $pdo->prepare($upsertPriceSql);
             $deleteSale    = $pdo->prepare($deleteSaleSql);
             $insertSale    = $pdo->prepare($insertSaleSql);
 
@@ -192,7 +186,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['do_import'])) {
 
                         // Цена на 1-е число месяца листа
                         if ($price > 0) {
-                            $upsertPrice->execute([$pid, $price, $priceDate]);
+                            upsert_product_price($pdo, $pid, $price, $priceDate);
                         }
 
                         // Продажи за каждый день
