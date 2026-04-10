@@ -97,6 +97,11 @@ CREATE INDEX IF NOT EXISTS idx_sales_product  ON sales(product_id);
 CREATE INDEX IF NOT EXISTS idx_sales_return   ON sales(is_return);
 CREATE INDEX IF NOT EXISTS idx_sales_orig     ON sales(original_sale_id);
 CREATE INDEX IF NOT EXISTS idx_products_cat   ON products(category_id);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
 SQL
     );
 }
@@ -251,6 +256,12 @@ function migrate_schema(PDO $pdo): array {
                 $pdo->exec("CREATE UNIQUE INDEX uniq_products_name ON products(name)");
                 $messages[] = ['ok', 'Создан уникальный индекс <code>uniq_products_name</code>: дубли наименований теперь невозможны.'];
             }
+        }
+
+        // ── settings ──────────────────────────────────────────
+        if (!table_exists($pdo, 'settings')) {
+            $pdo->exec("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')");
+            $messages[] = ['ok', 'Создана таблица <code>settings</code>.'];
         }
 
         // ── users.role ────────────────────────────────────────

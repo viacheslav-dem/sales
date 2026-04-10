@@ -85,10 +85,12 @@ if ($postDate > $today) {
     json_out(['ok' => false, 'error' => 'Future dates are not allowed'], 400);
 }
 
-// Менеджер может сохранять продажи только за текущий день.
-// Администратор — за любой день (будущие уже отсечены выше).
+// Менеджер — только текущий день, если не разрешено в настройках.
 if ($postDate !== $today && !is_admin()) {
-    json_out(['ok' => false, 'error' => 'Редактирование прошлых дней доступно только администратору'], 403);
+    $managerCanEditPast = get_setting('manager_edit_past_days', '0') === '1';
+    if (!$managerCanEditPast) {
+        json_out(['ok' => false, 'error' => 'Редактирование прошлых дней доступно только администратору'], 403);
+    }
 }
 
 $ALLOWED_PAYMENTS = ['cash', 'card', 'other'];
@@ -228,9 +230,9 @@ try {
         }
     }
 
-    // 2) Возвраты — только если открыт «сегодня» -----------------
+    // 2) Возвраты -------------------------------------------------
     $returns = $payload['returns'] ?? [];
-    if ($postDate === $today && is_array($returns) && !empty($returns)) {
+    if (is_array($returns) && !empty($returns)) {
         $loadOrig = $pdo->prepare(
             "SELECT id, product_id, quantity, base_price, unit_price, payment_method
              FROM sales WHERE id = ? AND is_return = 0"
@@ -263,12 +265,12 @@ try {
             $orig = $loadOrig->fetch();
             if (!$orig) continue;
 
-            $sumOtherReturns->execute([$origId, $today]);
+            $sumOtherReturns->execute([$origId, $postDate]);
             $returnedOther = (int)$sumOtherReturns->fetchColumn();
             $maxAllowed    = max(0, (int)$orig['quantity'] - $returnedOther);
             if ($qty > $maxAllowed) $qty = $maxAllowed;
 
-            $findTodayRet->execute([$origId, $today]);
+            $findTodayRet->execute([$origId, $postDate]);
             $existingId = $findTodayRet->fetchColumn();
 
             if ($qty === 0) {
@@ -283,11 +285,12 @@ try {
 
             if ($existingId) {
                 $updateRet->execute([$qty, $bp, $up, $amount, $disc, $existingId]);
-            } else {
+            } elseif ($postDate === $today) {
+                // Новые возвраты — только за сегодня
                 $origPayment = $orig['payment_method'] ?: 'cash';
                 $retSoldAt = date('Y-m-d H:i:s');
                 $insertRet->execute([
-                    (int)$orig['product_id'], $today,
+                    (int)$orig['product_id'], $postDate,
                     $qty, $bp, $up, $amount, $disc, $origId,
                     $retSoldAt, $origPayment,
                 ]);

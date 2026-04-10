@@ -7,6 +7,24 @@
 require_once __DIR__ . '/db.php';
 
 /* ============================================================
+   НАСТРОЙКИ (key-value таблица settings)
+   ============================================================ */
+
+function get_setting(string $key, string $default = ''): string {
+    $pdo = db();
+    $stmt = $pdo->prepare("SELECT value FROM settings WHERE key = ?");
+    $stmt->execute([$key]);
+    $val = $stmt->fetchColumn();
+    return $val !== false ? $val : $default;
+}
+
+function set_setting(string $key, string $value): void {
+    $pdo = db();
+    $pdo->prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        ->execute([$key, $value]);
+}
+
+/* ============================================================
    ФОРМАТИРОВАНИЕ
    ============================================================ */
 

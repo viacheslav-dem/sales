@@ -344,6 +344,7 @@
         const form = e.target;
         if (!(form instanceof HTMLFormElement) || form.method.toUpperCase() !== 'POST') return;
         if (form.hasAttribute('data-auto-filter')) return;
+        if (e.defaultPrevented) return;
         setTimeout(() => {
             form.querySelectorAll('button[type="submit"], input[type="submit"]').forEach(btn => {
                 btn.disabled = true;

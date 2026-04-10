@@ -2,8 +2,13 @@
 require_once __DIR__ . '/db.php';
 
 if (session_status() === PHP_SESSION_NONE) {
-    // Сессия живёт 8 часов бездействия (рабочая смена)
+    // Сессия живёт 8 часов бездействия (рабочая смена).
+    // Своя папка сессий — чтобы GC чужих сайтов на shared-хостинге
+    // не удалял наши файлы по дефолтному gc_maxlifetime (24 мин).
     ini_set('session.gc_maxlifetime', 28800);
+    $sessDir = __DIR__ . '/data/sessions';
+    if (!is_dir($sessDir)) mkdir($sessDir, 0700, true);
+    ini_set('session.save_path', $sessDir);
     // Харднутые cookie-параметры: HttpOnly + SameSite=Strict + Secure если HTTPS
     $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
            || ($_SERVER['SERVER_PORT'] ?? null) == 443;
@@ -86,6 +91,20 @@ function csrf_token(): string {
         $_SESSION['csrf'] = bin2hex(random_bytes(16));
     }
     return $_SESSION['csrf'];
+}
+
+// ── Flash-сообщения (PRG) ──────────────────────────────────
+
+/** Сохранить сообщение для показа после редиректа. */
+function flash(string $msg, string $type = 'success'): void {
+    $_SESSION['_flash'] = ['msg' => $msg, 'type' => $type];
+}
+
+/** Забрать flash-сообщение (одноразово). */
+function flash_get(): ?array {
+    $f = $_SESSION['_flash'] ?? null;
+    unset($_SESSION['_flash']);
+    return $f;
 }
 
 /** Скрытое поле формы с CSRF-токеном. */

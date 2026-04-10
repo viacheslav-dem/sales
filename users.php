@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/layout.php';
+require_once __DIR__ . '/helpers.php';
 require_admin();
 
 $pdo = db();
@@ -98,6 +99,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
             $msg = 'Пользователь удалён.';
         }
     }
+}
+
+// Настройки
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'settings') {
+    $val = !empty($_POST['manager_edit_past_days']) ? '1' : '0';
+    set_setting('manager_edit_past_days', $val);
+    $msg = 'Настройки сохранены.';
 }
 
 $users   = $pdo->query("SELECT id, username, role FROM users ORDER BY username")->fetchAll();
@@ -202,6 +210,21 @@ layout_header('Пользователи');
         <?php endforeach; ?>
         </tbody>
     </table>
+</div>
+
+<!-- Настройки прав -->
+<div class="card">
+    <div class="card-title">Настройки прав</div>
+    <form method="post" class="form-row m-0">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="settings">
+        <label>
+            <input type="checkbox" name="manager_edit_past_days" value="1"
+                   <?= get_setting('manager_edit_past_days', '0') === '1' ? 'checked' : '' ?>>
+            Менеджеры могут редактировать продажи за предыдущие дни
+        </label>
+        <button type="submit" class="btn btn-primary btn-sm"><?= icon('check', 14) ?>Сохранить</button>
+    </form>
 </div>
 
 <?php layout_footer(); ?>

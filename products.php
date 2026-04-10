@@ -10,11 +10,12 @@ $msgType = 'success';
 $today   = date('Y-m-d');
 
 /** URL для пагинации с сохранением фильтров. */
-function pageUrl(int $p, string $q, string $cat = '', string $status = 'active'): string {
+function pageUrl(int $p, string $q, string $cat = '', string $status = 'active', string $sort = ''): string {
     $params = ['page' => $p];
-    if ($q !== '')   $params['q']   = $q;
-    if ($cat !== '') $params['cat'] = $cat;
+    if ($q !== '')      $params['q']      = $q;
+    if ($cat !== '')    $params['cat']    = $cat;
     if ($status !== 'active') $params['status'] = $status;
+    if ($sort !== '')   $params['sort']   = $sort;
     return 'products.php?' . http_build_query($params);
 }
 
@@ -119,6 +120,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $cur = product_price_on($pdo, $id, $validFrom);
                         if (round($priceVal, 2) !== round($cur, 2)) {
                             upsert_product_price($pdo, $id, $priceVal, $validFrom);
+                        } else {
+                            // Цена совпадает с действующей → удалить запись на эту дату,
+                            // если она есть (отмена запланированного повышения).
+                            $pdo->prepare("DELETE FROM product_prices WHERE product_id = ? AND valid_from = ?")
+                                ->execute([$id, $validFrom]);
                         }
                     }
                 }
@@ -249,6 +255,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             break;
         }
     }
+
+    // PRG: сохраняем сообщение в сессию и редиректим, чтобы F5 не дублировал POST.
+    if ($msg !== '') {
+        flash($msg, $msgType);
+        $redir = 'products.php' . ($_SERVER['QUERY_STRING'] ? '?' . $_SERVER['QUERY_STRING'] : '');
+        header('Location: ' . $redir);
+        exit;
+    }
 }
 
 // ── Список категорий (для select и фильтра) ────────────────
@@ -259,6 +273,17 @@ $search       = trim($_GET['q'] ?? '');
 $catFilter    = $_GET['cat'] ?? '';     // '', '0' (без категории), or category id
 $statusFilter = $_GET['status'] ?? 'active'; // active | archived | all
 if (!in_array($statusFilter, ['active', 'archived', 'all'], true)) $statusFilter = 'active';
+$sort = $_GET['sort'] ?? 'name_asc';
+$sortMap = [
+    'name_asc'  => 'p.is_active DESC, p.name',
+    'name_desc' => 'p.is_active DESC, p.name DESC',
+    'price_asc' => 'p.is_active DESC, price',
+    'price_desc'=> 'p.is_active DESC, price DESC',
+    'cat_asc'   => 'p.is_active DESC, c.name, p.name',
+    'id'        => 'p.is_active DESC, p.id',
+];
+if (!isset($sortMap[$sort])) $sort = 'name_asc';
+$orderBy = $sortMap[$sort];
 $where  = [];
 $params = [];
 if ($search !== '') {
@@ -324,13 +349,20 @@ $stmt = $pdo->prepare(<<<SQL
     FROM products p
     LEFT JOIN categories c ON c.id = p.category_id
     $whereSql
-    ORDER BY p.is_active DESC, p.name
+    ORDER BY $orderBy
     LIMIT ? OFFSET ?
 SQL);
 $stmt->execute($queryParams);
 $products = $stmt->fetchAll();
 
-$formAction = pageUrl($page, $search, $catFilter, $statusFilter);
+$formAction = pageUrl($page, $search, $catFilter, $statusFilter, $sort);
+
+// Подхватить flash-сообщение после PRG
+$flash = flash_get();
+if ($flash) {
+    $msg     = $flash['msg'];
+    $msgType = $flash['type'];
+}
 
 // Активный фильтр-чип категории
 $activeCatChip = null;
@@ -361,6 +393,7 @@ layout_header('Товары', true);
 <!-- Поиск + фильтр + кнопка добавления -->
 <div class="card card-pad-sm">
     <form method="get" class="search-bar m-0" data-auto-filter>
+        <?php if ($sort !== ''): ?><input type="hidden" name="sort" value="<?= htmlspecialchars($sort) ?>"><?php endif; ?>
         <label for="search-input" class="sr-only">Поиск товара</label>
         <input type="search" name="q" value="<?= htmlspecialchars($search) ?>"
                placeholder="Поиск по наименованию…" class="w-input-xl" id="search-input">
@@ -394,6 +427,20 @@ layout_header('Товары', true);
     </form>
 </div>
 
+<?php
+// Хелпер: ссылка-заголовок с переключением сортировки
+function sortTh(string $label, string $ascKey, string $descKey, string $curSort, string $search, string $cat, string $status, string $extraCls = ''): string {
+    $isSorted = ($curSort === $ascKey || $curSort === $descKey);
+    $nextSort = ($curSort === $ascKey) ? $descKey : $ascKey;
+    $arrow = '';
+    if ($curSort === $ascKey)  $arrow = ' ↑';
+    if ($curSort === $descKey) $arrow = ' ↓';
+    $url = pageUrl(1, $search, $cat, $status, $nextSort);
+    $cls = 'sortable' . ($isSorted ? ' is-sorted' : '') . ($extraCls ? ' ' . $extraCls : '');
+    return "<th class=\"$cls\"><a href=\"" . htmlspecialchars($url) . "\">" . htmlspecialchars($label) . $arrow . "</a></th>";
+}
+?>
+
 <!-- Список товаров -->
 <div class="card card-flush">
     <?php if ($activeCatChip): ?>
@@ -413,9 +460,9 @@ layout_header('Товары', true);
                     <input type="checkbox" id="bulk-master" aria-label="Выбрать все на странице">
                 </th>
                 <th class="col-w-40">#</th>
-                <th>Наименование</th>
-                <th class="col-w-170">Категория</th>
-                <th class="num col-w-160">Текущая цена (руб.)</th>
+                <?= sortTh('Наименование', 'name_asc', 'name_desc', $sort, $search, $catFilter, $statusFilter) ?>
+                <?= sortTh('Категория', 'cat_asc', 'cat_asc', $sort, $search, $catFilter, $statusFilter, 'col-w-170') ?>
+                <?= sortTh('Текущая цена (руб.)', 'price_asc', 'price_desc', $sort, $search, $catFilter, $statusFilter, 'num col-w-160') ?>
                 <th class="col-w-100">Действия</th>
             </tr>
         </thead>
@@ -504,7 +551,7 @@ layout_header('Товары', true);
 
     <?php render_pagination(
         $page, $totalPages, $totalCount, $perPage, $offset,
-        fn(int $p) => pageUrl($p, $search, $catFilter, $statusFilter)
+        fn(int $p) => pageUrl($p, $search, $catFilter, $statusFilter, $sort)
     ); ?>
 </div>
 
