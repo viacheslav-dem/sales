@@ -402,6 +402,111 @@ nav .user-name {
   border-radius: 2px;
 }
 
+/* ── WooCommerce Module ── */
+.woo-check-list label {
+  display: flex; align-items: center; gap: var(--sp-2);
+  margin-bottom: var(--sp-1); font-weight: 400; cursor: pointer;
+}
+.woo-sync-bar { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.woo-sync-bar__info { flex: 1; min-width: 200px; }
+.woo-sync-bar__title { font-weight: 600; margin-bottom: var(--sp-1); }
+.woo-sync-bar__actions { display: flex; gap: var(--sp-2); }
+.woo-empty { text-align: center; padding: var(--sp-8); }
+.woo-empty p { color: var(--text-muted); font-size: 1.1rem; margin: 0; }
+
+/* Вложенная таблица позиций заказа (WC Заказы) */
+/* Таблица заказов WC */
+.woo-orders-table { width: 100%; }
+.woo-orders-table td { vertical-align: top; padding-top: var(--sp-3); padding-bottom: var(--sp-3); }
+.woo-orders-table thead th { white-space: nowrap; }
+
+.order-row-main td { border-bottom: none !important; }
+
+/* Строка с позициями */
+.order-items-wrap {
+  padding: 0 var(--sp-3) var(--sp-4) var(--sp-8);
+  border-top: none;
+  border-bottom: 1px solid var(--border);
+}
+.order-items-table {
+  width: 100%; max-width: 680px; margin: 0;
+  font-size: var(--text-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  border-left: 3px solid var(--clr-primary-200);
+}
+.order-items-table th,
+.order-items-table td { padding: var(--sp-2) var(--sp-3); }
+.order-items-table thead tr { background: var(--clr-primary-50); }
+.order-items-table th {
+  font-weight: 600; font-size: var(--text-xs, 0.75rem);
+  text-transform: uppercase; letter-spacing: 0.03em;
+  color: var(--text-secondary);
+}
+
+/* ── Nav Dropdown (WooCommerce подменю) ── */
+.nav-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+.nav-dropdown__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--sp-3);
+  color: var(--nav-text);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--ease), background var(--ease);
+  font-family: inherit;
+}
+.nav-dropdown__toggle svg:first-child { width: 15px; height: 15px; opacity: .6; }
+.nav-dropdown__toggle:hover,
+.nav-dropdown__toggle.active {
+  color: var(--nav-text-active);
+  background: var(--nav-hover);
+}
+.nav-dropdown__toggle.active { border-bottom-color: var(--nav-active); }
+
+.nav-dropdown__menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 180px;
+  background: var(--nav-bg, #1e293b);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 0 0 var(--radius) var(--radius);
+  box-shadow: 0 8px 24px rgba(0,0,0,.3);
+  z-index: 1000;
+  padding: var(--sp-1) 0;
+}
+.nav-dropdown:hover .nav-dropdown__menu,
+.nav-dropdown--open .nav-dropdown__menu { display: flex; flex-direction: column; }
+
+.nav-dropdown__menu a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: var(--sp-2) var(--sp-4);
+  color: var(--nav-text);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-decoration: none;
+  border-bottom: none;
+  transition: background var(--ease), color var(--ease);
+  white-space: nowrap;
+}
+.nav-dropdown__menu a svg { width: 15px; height: 15px; opacity: .6; }
+.nav-dropdown__menu a:hover { background: var(--nav-hover); color: var(--nav-text-active); }
+.nav-dropdown__menu a.active { color: var(--nav-active); background: rgba(74,222,128,.08); }
+
 /* Гамбургер — скрыт на десктопе */
 .nav-burger {
   display: none;
@@ -459,6 +564,30 @@ nav .user-name {
     margin-top: var(--sp-2);
   }
   .nav-links .nav-divider { display: none; }
+
+  /* Dropdown в мобильном меню — раскрывается inline */
+  .nav-dropdown { display: flex; flex-direction: column; width: 100%; }
+  .nav-dropdown__toggle {
+    padding: var(--sp-2) var(--sp-3);
+    border-bottom: none;
+    border-radius: var(--radius);
+    justify-content: flex-start;
+    width: 100%;
+  }
+  .nav-dropdown__menu {
+    display: flex !important;
+    position: static;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0 0 0 var(--sp-5);
+    flex-direction: column;
+  }
+  .nav-dropdown__menu a {
+    padding: var(--sp-1) var(--sp-3);
+    border-radius: var(--radius);
+    font-size: var(--text-sm);
+  }
 }
 
 /* =========================================================
@@ -1062,6 +1191,7 @@ input[type=number].qty-input {
 }
 .badge-primary { background: var(--clr-primary-50); color: var(--clr-primary-700); border-color: var(--clr-primary-200); }
 .badge-warning { background: var(--clr-warning-light); color: var(--clr-warning-text); border-color: var(--clr-warning-border); }
+.badge-danger  { background: var(--clr-danger-light, #fef2f2); color: var(--clr-danger, #dc2626); border-color: #fecaca; }
 
 /* =========================================================
    IMPORT LOG

@@ -76,6 +76,10 @@ function layout_header(string $title = '', bool $wide = false, ?string $filterKe
     $cur       = basename($_SERVER['PHP_SELF']);
     $mainCls   = 'container' . ($wide ? ' container--wide' : '');
 
+    // Для поддержки страниц в подпапках (woo/): вычисляем относительный путь к корню приложения
+    $_selfDir  = trim(dirname($_SERVER['PHP_SELF']), '/\\');
+    $_appBase  = $_selfDir === '' ? '' : str_repeat('../', substr_count($_selfDir, '/') + 1);
+
     $nav = [
         'dashboard.php' => ['Дашборд',          'home',      false],
         'daily.php'     => ['Продажи за день',  'clipboard', false],
@@ -86,6 +90,18 @@ function layout_header(string $title = '', bool $wide = false, ?string $filterKe
         'users.php'     => ['Пользователи',     'users',     true],   // только admin
         'import.php'    => ['Импорт',           'upload',    true],   // только admin
     ];
+
+    // WooCommerce — dropdown-подменю; 4-й элемент = adminOnly
+    $wooNav = [
+        'woo/woo_dashboard.php' => ['Дашборд',   'shopping-bag', false],
+        'woo/woo_orders.php'    => ['Заказы',     'cart',         false],
+        'woo/woo_report.php'    => ['Отчёт',      'chart',        false],
+        'woo/woo_settings.php'  => ['Настройки',  'refresh-ccw',  true],
+    ];
+    $wooActive = false;
+    foreach ($wooNav as $f => $_) {
+        if ($cur === basename($f)) { $wooActive = true; break; }
+    }
     $userIsAdmin = is_admin();
     ?>
 <!DOCTYPE html>
@@ -97,15 +113,15 @@ function layout_header(string $title = '', bool $wide = false, ?string $filterKe
 <meta name="csrf-token" content="<?= htmlspecialchars(csrf_token(), ENT_QUOTES) ?>">
 <title><?= htmlspecialchars($pageTitle) ?></title>
 
-<link rel="stylesheet" href="style.css?v=<?= asset_v('style.css') ?>">
+<link rel="stylesheet" href="<?= $_appBase ?>style.css?v=<?= asset_v('style.css') ?>">
 
 <!-- Общие фронтенд-утилиты (App.openModal, debounce, escHtml, confirmDialog).
      defer: выполняется после парсинга DOM, но до DOMContentLoaded, и
      ПЕРЕД страничными скриптами (сохраняется порядок документа). -->
-<script src="assets/app.js?v=<?= asset_v('assets/app.js') ?>" defer></script>
-<?php if (in_array($cur, ['dashboard.php', 'report.php'], true)): ?>
-<script src="assets/chart.umd.min.js?v=<?= asset_v('assets/chart.umd.min.js') ?>" defer></script>
-<script src="assets/charts.js?v=<?= asset_v('assets/charts.js') ?>" defer></script>
+<script src="<?= $_appBase ?>assets/app.js?v=<?= asset_v('assets/app.js') ?>" defer></script>
+<?php if (in_array($cur, ['dashboard.php', 'report.php', 'woo_dashboard.php', 'woo_report.php'], true)): ?>
+<script src="<?= $_appBase ?>assets/chart.umd.min.js?v=<?= asset_v('assets/chart.umd.min.js') ?>" defer></script>
+<script src="<?= $_appBase ?>assets/charts.js?v=<?= asset_v('assets/charts.js') ?>" defer></script>
 <?php endif; ?>
 
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2322c55e'/%3E%3Cpath d='M5 24 L11 14 L16 19 L27 6' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='27' cy='6' r='3' fill='white'/%3E%3C/svg%3E">
@@ -121,7 +137,7 @@ function layout_header(string $title = '', bool $wide = false, ?string $filterKe
     <button type="button" class="nav-burger" aria-label="Открыть меню" aria-expanded="false">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
     </button>
-    <a href="dashboard.php" class="brand" aria-label="<?= htmlspecialchars(APP_NAME) ?> — на главную">
+    <a href="<?= $_appBase ?>dashboard.php" class="brand" aria-label="<?= htmlspecialchars(APP_NAME) ?> — на главную">
         <svg width="32" height="32" viewBox="0 0 32 32" class="brand-logo" aria-hidden="true">
             <rect width="32" height="32" rx="8" fill="#16a34a"/>
             <path d="M7 22 L12 14 L17 18 L25 8" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -138,17 +154,34 @@ function layout_header(string $title = '', bool $wide = false, ?string $filterKe
             $adminInserted = true; ?>
             <span class="nav-divider" aria-hidden="true"></span>
         <?php endif; ?>
-    <a href="<?= $file ?>" class="<?= $cur === $file ? 'active' : '' ?>"<?= $cur === $file ? ' aria-current="page"' : '' ?>>
+    <a href="<?= $_appBase . $file ?>" class="<?= $cur === basename($file) ? 'active' : '' ?>"<?= $cur === basename($file) ? ' aria-current="page"' : '' ?>>
         <?= icon($iconName, 16) ?>
         <span><?= $label ?></span>
     </a>
     <?php endforeach; ?>
+    <span class="nav-divider" aria-hidden="true"></span>
+    <div class="nav-dropdown<?= $wooActive ? ' nav-dropdown--active' : '' ?>">
+        <button type="button" class="nav-dropdown__toggle<?= $wooActive ? ' active' : '' ?>">
+            <?= icon('shopping-bag', 16) ?>
+            <span>WooCommerce</span>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-left:2px;opacity:.5;"><path d="M2.5 4 5 6.5 7.5 4"/></svg>
+        </button>
+        <div class="nav-dropdown__menu">
+            <?php foreach ($wooNav as $wFile => [$wLabel, $wIcon, $wAdminOnly]):
+                if ($wAdminOnly && !$userIsAdmin) continue;
+            ?>
+            <a href="<?= $_appBase . $wFile ?>" class="<?= $cur === basename($wFile) ? 'active' : '' ?>">
+                <?= icon($wIcon, 15) ?> <?= $wLabel ?>
+            </a>
+            <?php endforeach; ?>
+        </div>
+    </div>
     <div class="spacer"></div>
     <span class="user" title="<?= htmlspecialchars($user['username']) ?>">
         <span class="user-avatar" aria-hidden="true"><?= htmlspecialchars(mb_strtoupper(mb_substr($user['username'], 0, 1))) ?></span>
         <span class="user-name"><?= htmlspecialchars($user['username']) ?></span>
     </span>
-    <a href="logout.php" class="nav-logout" title="Выйти" aria-label="Выйти из системы">
+    <a href="<?= $_appBase ?>logout.php" class="nav-logout" title="Выйти" aria-label="Выйти из системы">
         <?= icon('logout', 16) ?>
         <span>Выйти</span>
     </a>
