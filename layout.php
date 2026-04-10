@@ -108,7 +108,7 @@ function layout_header(string $title = '', bool $wide = false, ?string $filterKe
 <script src="assets/charts.js?v=<?= asset_v('assets/charts.js') ?>" defer></script>
 <?php endif; ?>
 
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<?= rawurlencode('<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 32 32\'><rect width=\'32\' height=\'32\' rx=\'8\' fill=\'%2316a34a\'/><path d=\'M7 22 L12 14 L17 18 L25 8\' fill=\'none\' stroke=\'white\' stroke-width=\'2.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/><circle cx=\'25\' cy=\'8\' r=\'2.5\' fill=\'white\'/></svg>') ?>">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2322c55e'/%3E%3Cpath d='M5 24 L11 14 L16 19 L27 6' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='27' cy='6' r='3' fill='white'/%3E%3C/svg%3E">
 <?php if ($filterKey !== null): ?>
 <meta name="filter-key" content="<?= htmlspecialchars($filterKey, ENT_QUOTES) ?>">
 <?php endif; ?>
