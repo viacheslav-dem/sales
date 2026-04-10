@@ -9,6 +9,8 @@
     RewriteRule ^data/ - [F,L]
     # Запретить прямой доступ к vendor/
     RewriteRule ^vendor/ - [F,L]
+    # Запретить прямой доступ к woo_config.php
+    RewriteRule ^woo/woo_config\.php$ - [F,L]
 </IfModule>
 
 # Отключить показ содержимого директорий

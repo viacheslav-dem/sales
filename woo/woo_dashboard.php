@@ -16,8 +16,11 @@ require_login();
 $wooDB = woo_db();
 $check = $wooDB->query("SELECT name FROM sqlite_master WHERE type='table' AND name='woo_orders'");
 if (!$check->fetchColumn()) {
-    require_once __DIR__ . '/woo_install.php';
-    exit;
+    if (file_exists(__DIR__ . '/woo_install.php')) {
+        require_once __DIR__ . '/woo_install.php';
+        exit;
+    }
+    die('База WooCommerce-модуля не инициализирована. Загрузите woo_install.php и откройте его.');
 }
 
 $today    = date('Y-m-d');
