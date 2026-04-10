@@ -138,7 +138,7 @@ layout_header('Дашборд', wide: true);
     <!-- Топ-5 товаров -->
     <div class="card">
         <div class="dashboard-card-header">
-            <div class="card-title" style="margin-bottom:0">Топ-5 товаров за 30 дней</div>
+            <div class="card-title" style="margin-bottom:0">Топ-5 товаров по выручке за 30 дней</div>
             <a href="report.php?preset=last_30" class="btn btn-ghost btn-sm">Все →</a>
         </div>
         <?php if (empty($top5)): ?>
@@ -152,7 +152,7 @@ layout_header('Дашборд', wide: true);
                 <div class="top-rank">#<?= $i + 1 ?></div>
                 <div class="top-name"><?= htmlspecialchars($t['name']) ?></div>
                 <div class="top-bar-wrap"><div class="top-bar" style="width:<?= round($share, 1) ?>%"></div></div>
-                <div class="top-sum"><?= format_money((float)$t['net_sum'], 0) ?></div>
+                <div class="top-sum"><?= format_money((float)$t['net_sum'], 0) ?> <small>руб.</small></div>
             </div>
             <?php endforeach; ?>
         </div>
