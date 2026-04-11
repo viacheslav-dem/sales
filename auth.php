@@ -3,12 +3,25 @@ require_once __DIR__ . '/db.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     // Сессия живёт 8 часов бездействия (рабочая смена).
-    // Своя папка сессий — чтобы GC чужих сайтов на shared-хостинге
-    // не удалял наши файлы по дефолтному gc_maxlifetime (24 мин).
     ini_set('session.gc_maxlifetime', 28800);
-    $sessDir = __DIR__ . '/data/sessions';
-    if (!is_dir($sessDir)) mkdir($sessDir, 0700, true);
-    ini_set('session.save_path', $sessDir);
+    // Redis: TTL автоматический, без gc_probability. Fallback на файлы если недоступен.
+    $useRedis = extension_loaded('redis');
+    if ($useRedis) {
+        try {
+            $r = new Redis();
+            $r->connect('127.0.0.1', 6379, 0.5);
+            $r->close();
+            ini_set('session.save_handler', 'redis');
+            ini_set('session.save_path', 'tcp://127.0.0.1:6379');
+        } catch (Throwable $e) {
+            $useRedis = false;
+        }
+    }
+    if (!$useRedis) {
+        $sessDir = __DIR__ . '/data/sessions';
+        if (!is_dir($sessDir)) mkdir($sessDir, 0700, true);
+        ini_set('session.save_path', $sessDir);
+    }
     // Харднутые cookie-параметры: HttpOnly + SameSite=Strict + Secure если HTTPS
     $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
            || ($_SERVER['SERVER_PORT'] ?? null) == 443;

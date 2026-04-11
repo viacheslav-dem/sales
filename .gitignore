@@ -6,3 +6,4 @@ data/
 .vscode/
 composer.lock
 settings.local.json
+woo/woo_config.php
